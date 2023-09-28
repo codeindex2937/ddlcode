@@ -3,6 +3,7 @@ package ddlcode
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -29,22 +30,40 @@ type entity struct {
 }
 
 type DrawioConfig struct {
-	ExportPath  string
-	CellId      string
-	EntityStyle string
-	Width       int
-	Height      int
-	Tables      []*Table
-	Template    *template.Template
-	HeaderStyle string
-	TableStyle  string
-	CellStyle   string
+	ExportPath     string
+	CellId         string
+	EntityStyle    string
+	Width          int
+	Height         int
+	Tables         []*Table
+	Template       *template.Template
+	HeaderStyle    string
+	TableStyle     string
+	LinkStyle      string
+	EdgeLabelStyle string
+	CellStyle      string
 }
 
 type drawioContext struct {
 	DrawioConfig
 	ModTime  string
 	Entities []entity
+	Links    []drawioLink
+}
+
+type drawioTable struct {
+	Id string
+}
+
+type drawioLink struct {
+	Id            string
+	LineStyle     string
+	Source        string
+	Target        string
+	LabelId       string
+	LabelStyle    string
+	RefColumn     string
+	ForeignColumn string
 }
 
 var DrawioFuncMap = template.FuncMap{
@@ -65,6 +84,21 @@ var DrawioTEmplate = `<mxfile host="Electron" modified="{{ .ModTime }}" agent="M
           <mxGeometry x="{{ $entity.X }}" y="{{ $entity.Y }}" width="{{ $entity.Width }}" height="{{ $entity.Height }}" as="geometry" />
         </mxCell>
 		{{- end }}
+		{{- range .Links }}
+			<mxCell id="{{ .Id }}" style="{{ .LineStyle }}" edge="1" parent="1" source="{{ .Source }}" target="{{ .Target }}">
+				<mxGeometry relative="1" as="geometry" />
+			</mxCell>
+			<mxCell id="{{ .LabelId }}-1" value="{{ .RefColumn }}" style="{{ .LabelStyle }}" parent="{{ .Id }}" vertex="1" connectable="0">
+				<mxGeometry x="-0.9" y="0" relative="1" as="geometry">
+					<mxPoint as="offset" />
+				</mxGeometry>
+			</mxCell>
+			<mxCell id="{{ .LabelId }}-2" value="{{ .ForeignColumn }}" style="{{ .LabelStyle }}" parent="{{ .Id }}" vertex="1" connectable="0">
+				<mxGeometry x="0.9" y="0" relative="1" as="geometry">
+					<mxPoint as="offset" />
+				</mxGeometry>
+			</mxCell>
+		{{- end }}
       </root>
     </mxGraphModel>
   </diagram>
@@ -81,8 +115,8 @@ var entityFuncMap = template.FuncMap{
 }
 
 var entityTemplate, _ = template.New("drawioEntity").Funcs(entityFuncMap).Parse(
-	`<div style="{{.HeaderStyle}}">{{ .Table.Name }}</div>
-<table style="{{.TableStyle}}">
+	`<div style="display:flex;flex-direction:column;height:100%;"><div style="{{.HeaderStyle}}flex:0">{{ .Table.Name }}</div>
+<table style="{{.TableStyle}}flex:1;">
 {{- $ctx := . -}}
 {{- range .Table.Columns }}
 <tr>
@@ -95,7 +129,7 @@ var entityTemplate, _ = template.New("drawioEntity").Funcs(entityFuncMap).Parse(
 <td style="{{ $ctx.CellStyle }}">{{ GetDefaultValue .Attribute }}</td>
 </tr>
 {{- end }}
-</table>
+</table></div>
 `)
 
 func GetDefaultDrawioConfig() DrawioConfig {
@@ -135,6 +169,29 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"background":      "DimGray",
 			"border-collapse": "collapse",
 		}, ":"),
+		LinkStyle: join(map[string]string{
+			"edgeStyle":      "orthogonalEdgeStyle",
+			"rounded":        "0",
+			"orthogonalLoop": "1",
+			"jettySize":      "auto",
+			"html":           "1",
+			"exitX":          "1",
+			"exitY":          "0.5",
+			"exitDx":         "0",
+			"exitDy":         "0",
+			"entryX":         "0",
+			"entryY":         "0.5",
+			"entryDx":        "0",
+			"entryDy":        "0",
+		}, "="),
+		EdgeLabelStyle: join(map[string]string{
+			"edgeLabel":     "",
+			"html":          "1",
+			"align":         "center",
+			"verticalAlign": "middle",
+			"resizable":     "0",
+			"points":        "[]",
+		}, "="),
 		CellStyle: join(map[string]string{
 			"border": "1px solid",
 		}, ":"),
@@ -151,8 +208,15 @@ func GetDefaultDrawioConfig() DrawioConfig {
 func GenerateDrawio(config DrawioConfig) (File, error) {
 	rowHeight := 16
 	entities := []entity{}
+	links := []drawioLink{}
+	tableIdMap := map[string]string{}
+	lineInTotal := map[string]float64{}
+	lineOutTotal := map[string]float64{}
+	lineInCount := map[string]float64{}
+	lineOutCount := map[string]float64{}
 	y := 0
-	for _, table := range config.Tables {
+
+	for i, table := range config.Tables {
 		height := rowHeight*len(table.Columns) + 20
 		entities = append(entities, entity{
 			X:           0,
@@ -165,10 +229,55 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 			Table:       table,
 		})
 		y += height
+
+		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
+		tableIdMap[table.Name] = tableId
+		for _, col := range table.Columns {
+			if col.ForeignTable == nil {
+				continue
+			}
+			lineOutTotal[table.Name] += 1
+			lineInTotal[col.ForeignTable.Name] += 1
+		}
 	}
+
+	for k, v := range lineOutTotal {
+		lineOutTotal[k] = v + 1
+	}
+
+	for k, v := range lineInTotal {
+		lineInTotal[k] = v + 1
+	}
+
+	for _, table := range config.Tables {
+		for _, col := range table.Columns {
+			if col.ForeignTable == nil {
+				continue
+			}
+
+			lineOutCount[table.Name] += 1
+			lineInCount[col.ForeignTable.Name] += 1
+			entryPosition := fmt.Sprintf("entryX=%v;entryY=%v;", lineInCount[col.ForeignTable.Name]/lineInTotal[col.ForeignTable.Name], 1)
+			exitPosition := fmt.Sprintf("exitX=%v;exitY=%v;", lineOutCount[table.Name]/lineOutTotal[table.Name], 0)
+
+			link := drawioLink{
+				Id:            fmt.Sprintf("%v-1", randId()),
+				LineStyle:     config.LinkStyle + entryPosition + exitPosition,
+				Source:        tableIdMap[table.Name],
+				Target:        tableIdMap[col.ForeignTable.Name],
+				LabelStyle:    config.EdgeLabelStyle,
+				LabelId:       randId(),
+				ForeignColumn: col.ForeignColumn.Name,
+				RefColumn:     col.Name,
+			}
+			links = append(links, link)
+		}
+	}
+
 	ctx := drawioContext{}
 	ctx.DrawioConfig = config
 	ctx.Entities = entities
+	ctx.Links = links
 	ctx.ModTime = time.Now().Format("2006-01-02T15:04:05.999Z")
 
 	file, err := generateFile(config.Template, config.ExportPath, ctx)
@@ -177,6 +286,15 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 	}
 
 	return file, nil
+}
+
+func randId() string {
+	r := make([]byte, 15)
+	if _, err := rand.Read(r); err != nil {
+		log.Fatal(err)
+	}
+
+	return base64.StdEncoding.EncodeToString(r)
 }
 
 func getEntity(e entity) string {
@@ -280,7 +398,11 @@ func getDefaultValue(expr ast.ExprNode) (value string) {
 func join(style map[string]string, assignChar string) string {
 	sb := strings.Builder{}
 	for k, v := range style {
-		sb.WriteString(fmt.Sprintf("%v%v%v;", k, assignChar, v))
+		if len(v) > 0 {
+			sb.WriteString(fmt.Sprintf("%v%v%v;", k, assignChar, v))
+		} else {
+			sb.WriteString(fmt.Sprintf("%v;", k))
+		}
 	}
 	return sb.String()
 }
