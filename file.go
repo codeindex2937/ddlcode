@@ -5,8 +5,8 @@ import (
 )
 
 type File struct {
-	Path    string
-	Content []byte
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
 }
 
 func (f File) Flush() error {

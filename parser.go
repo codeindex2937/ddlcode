@@ -26,22 +26,40 @@ func Parse(sql string) []*Table {
 		log.Fatal(err)
 	}
 
+	tableMap := map[string]*Table{}
 	tables := []*Table{}
 	for _, stmt := range stmts {
 		if ct, ok := stmt.(*ast.CreateTableStmt); ok {
-			table := translate(ct)
+			table := translateTable(ct)
 			tables = append(tables, table)
+			tableMap[table.Name] = table
+		}
+
+		if ct, ok := stmt.(*ast.AlterTableStmt); ok {
+			table := tableMap[ct.Table.Name.String()]
+			for _, spec := range ct.Specs {
+				switch spec.Constraint.Tp {
+				case ast.ConstraintForeignKey:
+					for i, k := range spec.Constraint.Keys {
+						refTable := tableMap[spec.Constraint.Refer.Table.Name.String()]
+						columnName := spec.Constraint.Refer.IndexColNames[i].Column.OrigColName()
+						c := table.getColumn(columnName)
+						c.ForeignTable = refTable
+						c.ForeignColumn = refTable.getColumn(k.Column.OrigColName())
+					}
+				}
+			}
 		}
 	}
 
 	return tables
 }
 
-func translate(ct *ast.CreateTableStmt) *Table {
+func translateTable(ct *ast.CreateTableStmt) *Table {
 	isPrimaryKey := make(map[string]ast.ExprNode)
 	table := &Table{
 		Name:    ct.Table.Name.String(),
-		Columns: []Column{},
+		Columns: []*Column{},
 	}
 
 	for _, con := range ct.Constraints {
@@ -57,7 +75,7 @@ func translate(ct *ast.CreateTableStmt) *Table {
 		for _, opt := range col.Options {
 			opts[opt.Tp] = opt.Expr
 		}
-		c := Column{
+		c := &Column{
 			Name:      col.Name.OrigColName(),
 			Type:      col.Tp,
 			Attribute: opts,
