@@ -8,8 +8,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/blastrain/vitess-sqlparser/tidbparser/dependency/mysql"
-	"github.com/blastrain/vitess-sqlparser/tidbparser/dependency/types"
+	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 	"github.com/iancoleman/strcase"
 )
 
@@ -27,7 +26,6 @@ var JavaFuncMap = template.FuncMap{
 	"ToCamel":               strcase.ToCamel,
 	"ToLowerCamel":          strcase.ToLowerCamel,
 	"ToTypeName":            toJavaType,
-	"IsPrimaryKey":          isPrimaryKey,
 	"IsCompositePrimaryKey": isCompositePrimaryKey,
 	"GetAllFields":          getAllFields,
 	"CompareFields":         compareJavaFields,
@@ -40,7 +38,7 @@ var JavaFuncMap = template.FuncMap{
 			return strcase.ToCamel(table.Name) + "PK"
 		}
 		for _, col := range table.Columns {
-			if isPrimaryKey(col.Attribute) {
+			if col.Attribute.IsPrimaryKey() {
 				return toJavaType(col.Type)
 			}
 		}
@@ -61,7 +59,7 @@ import java.util.Objects;
 public class {{ToCamel .Table.Name}}Entity {
 {{ $table := .Table}}
 {{- range .Table.Columns}}
-    {{- if (IsPrimaryKey .Attribute) }}
+    {{- if (.Attribute.IsPrimaryKey) }}
     @Id
     {{- end}}
     @Column(name = "{{.Name}}")
@@ -104,14 +102,14 @@ import java.io.Serializable;
 {{ GetPkImportPaths .Table }}
 public class {{ToCamel .Table.Name}}PK implements Serializable {
 {{range .Table.Columns}}
-{{- if IsPrimaryKey .Attribute}}
+{{- if .Attribute.IsPrimaryKey}}
     @Id
     @Column(name = "{{.Name}}")
     private {{ToTypeName .Type }} {{ToLowerCamel .Name}};
 {{end -}}
 {{end}}
 {{- range .Table.Columns}}
-{{- if IsPrimaryKey .Attribute}}
+{{- if .Attribute.IsPrimaryKey}}
     public {{ToTypeName .Type }} get{{ToCamel .Name}}() {
         return this.{{ToLowerCamel .Name}};
     }
@@ -232,7 +230,7 @@ func compareJavaFields(table *Table, otherName string) string {
 func compareJavaPkFields(table *Table, otherName string) string {
 	columnNames := []string{}
 	for _, c := range table.Columns {
-		if !isPrimaryKey(c.Attribute) {
+		if !c.Attribute.IsPrimaryKey() {
 			continue
 		}
 		entityName := strcase.ToLowerCamel(c.Name)
@@ -244,7 +242,7 @@ func compareJavaPkFields(table *Table, otherName string) string {
 func getJavaPkImportPaths(table *Table) (name string) {
 	importPaths := []string{}
 	for _, c := range table.Columns {
-		if !isPrimaryKey(c.Attribute) {
+		if !c.Attribute.IsPrimaryKey() {
 			continue
 		}
 		javaType := toJavaType(c.Type)
@@ -272,23 +270,34 @@ func getJavaImportPaths(table *Table) (name string) {
 	return strings.Join(importPaths, "")
 }
 
-func toJavaType(colTp *types.FieldType) (name string) {
-	switch colTp.Tp {
-	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong:
+func toJavaType(datatype element.Datatype) (name string) {
+	switch datatype.DataDef() {
+	case element.DataDefChar, element.DataDefVarchar2, element.DataDefNChar, element.DataDefNVarChar2, element.DataDefCharacter, element.DataDefCharacterVarying, element.DataDefCharVarying, element.DataDefNCharVarying, element.DataDefVarchar, element.DataDefNationalCharacter, element.DataDefNationalCharacterVarying, element.DataDefNationalChar, element.DataDefNationalCharVarying, element.DataDefXMLType:
+		name = "String"
+	case element.DataDefInteger, element.DataDefInt, element.DataDefSmallInt:
+		name = "Integer"
+	case element.DataDefLong, element.DataDefLongRaw:
 		name = "Long"
-	case mysql.TypeFloat, mysql.TypeDouble:
-		name = "Float64"
-	case mysql.TypeString, mysql.TypeVarchar, mysql.TypeVarString,
-		mysql.TypeBlob, mysql.TypeTinyBlob, mysql.TypeMediumBlob, mysql.TypeLongBlob:
-		name = "String"
-	case mysql.TypeTimestamp, mysql.TypeDatetime, mysql.TypeDate:
-		name = "Date"
-	case mysql.TypeDecimal, mysql.TypeNewDecimal:
+	case element.DataDefFloat, element.DataDefReal, element.DataDefBinaryFloat:
+		name = "Float"
+	case element.DataDefNumber, element.DataDefBinaryDouble, element.DataDefDoublePrecision:
+		name = "Double"
+	case element.DataDefDecimal, element.DataDefDec, element.DataDefNumeric:
 		name = "BigDecimal"
-	case mysql.TypeJSON:
-		name = "String"
+	case element.DataDefDate:
+		name = "Date"
+	case element.DataDefTimestamp:
+		name = "java.sql.Timestamp"
+	case element.DataDefRowId, element.DataDefURowId:
+		name = "java.sql.RowId"
+	case element.DataDefBlob, element.DataDefRaw, element.DataDefBFile:
+		name = "java.sql.Blob"
+	case element.DataDefClob, element.DataDefNClob:
+		name = "java.sql.Clob"
+	case element.DataDefIntervalYear, element.DataDefIntervalDay:
+		name = "UnSupport"
 	default:
-		return "UnSupport"
+		name = "UnSupport"
 	}
 	return
 }

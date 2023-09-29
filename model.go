@@ -3,15 +3,16 @@ package ddlcode
 import (
 	"slices"
 
-	"github.com/blastrain/vitess-sqlparser/tidbparser/ast"
-	"github.com/blastrain/vitess-sqlparser/tidbparser/dependency/types"
+	"github.com/codeindex2937/oracle-sql-parser/ast"
+	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 )
 
+type AttributeMap map[ast.ConstraintType]*ast.ColumnDefault
 type NullStyle int
 type Column struct {
 	Name          string
-	Type          *types.FieldType
-	Attribute     map[ast.ColumnOptionType]ast.ExprNode
+	Type          element.Datatype
+	Attribute     AttributeMap
 	ForeignColumn *Column
 	ForeignTable  *Table
 }
@@ -27,4 +28,37 @@ func (t Table) getColumn(name string) *Column {
 		return nil
 	}
 	return t.Columns[index]
+}
+
+func (attr AttributeMap) IsPrimaryKey() bool {
+	if _, ok := attr[ast.ConstraintTypePK]; ok {
+		return true
+	}
+	return false
+}
+
+func (attr AttributeMap) IsNotNull() bool {
+	if _, ok := attr[ast.ConstraintTypeNotNull]; ok {
+		return true
+	}
+	return false
+}
+
+func (attr AttributeMap) IsAllowNull() bool {
+	if _, ok := attr[ast.ConstraintTypeNull]; ok {
+		return true
+	}
+	return false
+}
+
+func (attr AttributeMap) IsAutoIncrement() bool {
+	// FIXME
+	return false
+}
+
+func (attr AttributeMap) IsUnique() bool {
+	if _, ok := attr[ast.ConstraintTypeUnique]; ok {
+		return true
+	}
+	return false
 }

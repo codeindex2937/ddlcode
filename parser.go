@@ -2,26 +2,13 @@ package ddlcode
 
 import (
 	"log"
-	"regexp"
 
-	"github.com/blastrain/vitess-sqlparser/tidbparser/ast"
-	"github.com/blastrain/vitess-sqlparser/tidbparser/parser"
+	parser "github.com/codeindex2937/oracle-sql-parser"
+	"github.com/codeindex2937/oracle-sql-parser/ast"
 )
 
-func Generalize(sql string) string {
-	re := regexp.MustCompile(`(?i) TIMESTAMP WITH TIME ZONE`)
-	sql = re.ReplaceAllString(sql, " TIMESTAMP")
-	re = regexp.MustCompile(`(?i) NUMBER\(`)
-	sql = re.ReplaceAllString(sql, ` NUMERIC(`)
-	re = regexp.MustCompile(`(?i) VARCHAR2`)
-	sql = re.ReplaceAllString(sql, ` VARCHAR`)
-	re = regexp.MustCompile(`(?i) NVARCHAR2`)
-	sql = re.ReplaceAllString(sql, ` VARCHAR`)
-	return sql
-}
-
 func Parse(sql string) []*Table {
-	stmts, err := parser.New().Parse(sql, "", "")
+	stmts, err := parser.Parser(sql)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,17 +22,19 @@ func Parse(sql string) []*Table {
 			tableMap[table.Name] = table
 		}
 
-		if ct, ok := stmt.(*ast.AlterTableStmt); ok {
-			table := tableMap[ct.Table.Name.String()]
-			for _, spec := range ct.Specs {
-				switch spec.Constraint.Tp {
-				case ast.ConstraintForeignKey:
-					for i, k := range spec.Constraint.Keys {
-						refTable := tableMap[spec.Constraint.Refer.Table.Name.String()]
-						columnName := spec.Constraint.Refer.IndexColNames[i].Column.OrigColName()
-						c := table.getColumn(columnName)
-						c.ForeignTable = refTable
-						c.ForeignColumn = refTable.getColumn(k.Column.OrigColName())
+		if alterStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+			table := tableMap[alterStmt.TableName.Table.Value]
+			for _, clause := range getAddConstraint(alterStmt) {
+				for _, spec := range clause.Constraints {
+					switch spec.InlineConstraint.Type {
+					case ast.ConstraintTypeReferences:
+						for i, k := range spec.Columns {
+							refTable := tableMap[spec.Reference.Table.Table.Value]
+							columnName := spec.Reference.Columns[i].Value
+							c := table.getColumn(columnName)
+							c.ForeignTable = refTable
+							c.ForeignColumn = refTable.getColumn(k.Value)
+						}
 					}
 				}
 			}
@@ -56,35 +45,66 @@ func Parse(sql string) []*Table {
 }
 
 func translateTable(ct *ast.CreateTableStmt) *Table {
-	isPrimaryKey := make(map[string]ast.ExprNode)
+	isPrimaryKey := make(map[string]ast.Node)
 	table := &Table{
-		Name:    ct.Table.Name.String(),
+		Name:    ct.TableName.Table.Value,
 		Columns: []*Column{},
 	}
 
-	for _, con := range ct.Constraints {
-		if con.Tp == ast.ConstraintPrimaryKey {
-			for _, k := range con.Keys {
-				isPrimaryKey[k.Column.OrigColName()] = nil
-			}
+	for _, constraint := range getPkConstraints(ct.RelTable.TableStructs) {
+		for _, col := range constraint.Columns {
+			isPrimaryKey[col.Value] = nil
 		}
 	}
 
-	for _, col := range ct.Cols {
-		opts := make(map[ast.ColumnOptionType]ast.ExprNode)
-		for _, opt := range col.Options {
-			opts[opt.Tp] = opt.Expr
+	for _, def := range getColumnDefs(ct.RelTable.TableStructs) {
+		opts := make(AttributeMap)
+		for _, con := range def.Constraints {
+			if con.Type == ast.ConstraintTypeDefault {
+				opts[con.Type] = def.Default
+			} else {
+				opts[con.Type] = nil
+			}
 		}
 		c := &Column{
-			Name:      col.Name.OrigColName(),
-			Type:      col.Tp,
+			Name:      def.ColumnName.Value,
+			Type:      def.Datatype,
 			Attribute: opts,
 		}
 		if _, ok := isPrimaryKey[c.Name]; ok {
-			c.Attribute[ast.ColumnOptionPrimaryKey] = nil
+			c.Attribute[ast.ConstraintTypePK] = nil
 		}
 		table.Columns = append(table.Columns, c)
 	}
 
 	return table
+}
+
+func getPkConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineConstraint) {
+	for _, t := range stmts {
+		if con, ok := t.(*ast.OutOfLineConstraint); ok {
+			if con.Type == ast.ConstraintTypePK {
+				constraints = append(constraints, con)
+			}
+		}
+	}
+	return
+}
+
+func getColumnDefs(stmts []ast.TableStructDef) (defs []*ast.ColumnDef) {
+	for _, t := range stmts {
+		if con, ok := t.(*ast.ColumnDef); ok {
+			defs = append(defs, con)
+		}
+	}
+	return
+}
+
+func getAddConstraint(stmt *ast.AlterTableStmt) (clauses []*ast.AddConstraintClause) {
+	for _, clause := range stmt.AlterTableClauses {
+		if constraint, ok := clause.(*ast.AddConstraintClause); ok {
+			clauses = append(clauses, constraint)
+		}
+	}
+	return
 }

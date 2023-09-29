@@ -12,8 +12,8 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/blastrain/vitess-sqlparser/tidbparser/ast"
-	"github.com/blastrain/vitess-sqlparser/tidbparser/dependency/types"
+	"github.com/codeindex2937/oracle-sql-parser/ast"
+	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 	"github.com/google/uuid"
 	"github.com/iancoleman/strcase"
 )
@@ -107,11 +107,8 @@ var DrawioTEmplate = `<mxfile host="Electron" modified="{{ .ModTime }}" agent="M
 
 var entityFuncMap = template.FuncMap{
 	"IsCompositePrimaryKey": isCompositePrimaryKey,
-	"IsNotNull":             isNotNull,
-	"IsPrimaryKey":          isPrimaryKey,
-	"IsAutoIncrement":       isAutoIncrement,
-	"IsUnique":              isUnique,
 	"GetDefaultValue":       getDefaultValueFromAttribute,
+	"ToSqlType":             toSqlType,
 }
 
 var entityTemplate, _ = template.New("drawioEntity").Funcs(entityFuncMap).Parse(
@@ -121,11 +118,11 @@ var entityTemplate, _ = template.New("drawioEntity").Funcs(entityFuncMap).Parse(
 {{- range .Table.Columns }}
 <tr>
 <td style="{{ $ctx.CellStyle }}">{{ .Name }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ .Type }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if IsNotNull .Attribute }}NN{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if IsPrimaryKey .Attribute }}PK{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if IsAutoIncrement .Attribute }}AI{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if IsUnique .Attribute }}U{{else}}-{{ end }}</td>
+<td style="{{ $ctx.CellStyle }}">{{ ToSqlType .Type }}</td>
+<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsNotNull }}NN{{else}}-{{ end }}</td>
+<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsPrimaryKey }}PK{{else}}-{{ end }}</td>
+<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsAutoIncrement }}AI{{else}}-{{ end }}</td>
+<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsUnique }}U{{else}}-{{ end }}</td>
 <td style="{{ $ctx.CellStyle }}">{{ GetDefaultValue .Attribute }}</td>
 </tr>
 {{- end }}
@@ -221,7 +218,7 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 		entities = append(entities, entity{
 			X:           0,
 			Y:           y,
-			Width:       180,
+			Width:       350,
 			Height:      height,
 			HeaderStyle: config.HeaderStyle,
 			TableStyle:  config.TableStyle,
@@ -319,39 +316,11 @@ func getEntity(e entity) string {
 func isCompositePrimaryKey(table *Table) bool {
 	var pKeyCount int
 	for _, col := range table.Columns {
-		if isPrimaryKey(col.Attribute) {
+		if col.Attribute.IsPrimaryKey() {
 			pKeyCount += 1
 		}
 	}
 	return pKeyCount > 1
-}
-
-func isPrimaryKey(attr map[ast.ColumnOptionType]ast.ExprNode) bool {
-	if _, ok := attr[ast.ColumnOptionPrimaryKey]; ok {
-		return true
-	}
-	return false
-}
-
-func isNotNull(attr map[ast.ColumnOptionType]ast.ExprNode) bool {
-	if _, ok := attr[ast.ColumnOptionNotNull]; ok {
-		return true
-	}
-	return false
-}
-
-func isAutoIncrement(attr map[ast.ColumnOptionType]ast.ExprNode) bool {
-	if _, ok := attr[ast.ColumnOptionAutoIncrement]; ok {
-		return true
-	}
-	return false
-}
-
-func isUnique(attr map[ast.ColumnOptionType]ast.ExprNode) bool {
-	if _, ok := attr[ast.ColumnOptionUniqKey]; ok {
-		return true
-	}
-	return false
 }
 
 func getAllFields(table *Table) string {
@@ -366,7 +335,7 @@ func getAllFields(table *Table) string {
 func getPkFields(table *Table) string {
 	columnNames := []string{}
 	for _, c := range table.Columns {
-		if !isPrimaryKey(c.Attribute) {
+		if !c.Attribute.IsPrimaryKey() {
 			continue
 		}
 		entityName := strcase.ToLowerCamel(c.Name)
@@ -375,24 +344,15 @@ func getPkFields(table *Table) string {
 	return strings.Join(columnNames, ",")
 }
 
-func getDefaultValueFromAttribute(attr map[ast.ColumnOptionType]ast.ExprNode) string {
-	if attr, ok := attr[ast.ColumnOptionDefaultValue]; ok {
+func getDefaultValueFromAttribute(attr AttributeMap) string {
+	if attr, ok := attr[ast.ConstraintTypeDefault]; ok {
 		return getDefaultValue(attr)
 	}
 	return ""
 }
 
-func getDefaultValue(expr ast.ExprNode) (value string) {
-	if expr.GetDatum().Kind() != types.KindNull {
-		value = fmt.Sprintf("%v", expr.GetDatum().GetValue())
-	} else if expr.GetFlag() != ast.FlagConstant {
-		if expr.GetFlag() == ast.FlagHasFunc {
-			if funcExpr, ok := expr.(*ast.FuncCallExpr); ok {
-				value = funcExpr.FnName.O
-			}
-		}
-	}
-	return
+func getDefaultValue(expr *ast.ColumnDefault) (value string) {
+	return fmt.Sprintf("%v", expr)
 }
 
 func join(style map[string]string, assignChar string) string {
@@ -407,60 +367,207 @@ func join(style map[string]string, assignChar string) string {
 	return sb.String()
 }
 
-// func toSqlType(colTp *types.FieldType) (name string) {
-// 	switch colTp.Tp {
-// 	case mysql.TypeTiny:
-// 		name = "TINYINT"
-// 	case mysql.TypeShort:
-// 		name = "SMALLINT"
-// 	case mysql.TypeInt24:
-// 		name = "MEDIUMINT"
-// 	case mysql.TypeLong:
-// 		name = "INT"
-// 	case mysql.TypeLonglong:
-// 		name = "BIGINT"
-// 	case mysql.TypeFloat:
-// 		name = "FLOAT"
-// 	case mysql.TypeDouble:
-// 		name = "DOUBLE"
-// 	case mysql.TypeString:
-// 		name = "CHAR"
-// 	case mysql.TypeVarchar:
-// 		name = "VARCHAR"
-// 	case mysql.TypeVarString:
-// 		name = "TEXT"
-// 	case mysql.TypeBlob:
-// 		name = "BLOB"
-// 	case mysql.TypeTinyBlob:
-// 		name = "TINYBLOB"
-// 	case mysql.TypeMediumBlob:
-// 		name = "MEDIUMBLOB"
-// 	case mysql.TypeLongBlob:
-// 		name = "LONGBLOB"
-// 	case mysql.TypeTimestamp:
-// 		name = "TIMESTAMP"
-// 	case mysql.TypeDatetime:
-// 		name = "DATETIME"
-// 	case mysql.TypeDate:
-// 		name = "DATE"
-// 	case mysql.TypeDecimal:
-// 		name = "DECIMAL"
-// 	case mysql.TypeNewDecimal:
-// 		name = "NUMERIC"
-// 	case mysql.TypeJSON:
-// 		name = "JSON"
-// 	case mysql.TypeNull:
-// 		name = "NULL"
-// 	case mysql.TypeYear:
-// 		name = "YEAR"
-// 	case mysql.TypeBit:
-// 		name = "BIT"
-// 	case mysql.TypeSet:
-// 		name = "SET"
-// 	case mysql.TypeGeometry:
-// 		name = "GEOMETRY"
-// 	default:
-// 		return "UnSupport"
-// 	}
-// 	return
-// }
+func toSqlType(datatype element.Datatype) (name string) {
+	switch datatype.DataDef() {
+	case element.DataDefChar:
+		realType := datatype.(*element.Char)
+		if realType.Size == nil {
+			name = "CHAR"
+		} else {
+			if realType.IsByteSize {
+				name = fmt.Sprintf("CHAR(%v BYTE)", *realType.Size)
+			} else if realType.IsCharSize {
+				name = fmt.Sprintf("CHAR(%v CHAR)", *realType.Size)
+			} else {
+				name = fmt.Sprintf("CHAR(%v)", *realType.Size)
+			}
+		}
+	case element.DataDefVarchar2:
+		realType := datatype.(*element.Varchar2)
+		if realType.Size == nil {
+			name = "VARCHAR2"
+		} else {
+			if realType.IsByteSize {
+				name = fmt.Sprintf("VARCHAR2(%v BYTE)", *realType.Size)
+			} else if realType.IsCharSize {
+				name = fmt.Sprintf("VARCHAR2(%v CHAR)", *realType.Size)
+			} else {
+				name = fmt.Sprintf("VARCHAR2(%v)", *realType.Size)
+			}
+		}
+	case element.DataDefCharacterVarying:
+		realType := datatype.(*element.Varchar2)
+		if realType.Size == nil {
+			name = "CHARRACTER VARYING"
+		} else {
+			name = fmt.Sprintf("CHARRACTER VARYING(%v)", *realType.Size)
+		}
+	case element.DataDefCharVarying:
+		realType := datatype.(*element.Varchar2)
+		if realType.Size == nil {
+			name = "CHAR VARYING"
+		} else {
+			name = fmt.Sprintf("CHAR VARYING(%v)", *realType.Size)
+		}
+	case element.DataDefVarchar:
+		realType := datatype.(*element.Varchar2)
+		if realType.Size == nil {
+			name = "VARCHAR"
+		} else {
+			name = fmt.Sprintf("VARCHAR(%v)", *realType.Size)
+		}
+	case element.DataDefNChar, element.DataDefNationalCharacter, element.DataDefNationalChar:
+		realType := datatype.(*element.NChar)
+		if realType.Size == nil {
+			name = "NCHAR"
+		} else {
+			name = fmt.Sprintf("NCHAR(%v)", *realType.Size)
+		}
+	case element.DataDefNVarChar2, element.DataDefNCharVarying, element.DataDefNationalCharacterVarying, element.DataDefNationalCharVarying:
+		realType := datatype.(*element.NVarchar2)
+		if realType.Size == nil {
+			name = "NVARCHAR2"
+		} else {
+			name = fmt.Sprintf("NVARCHAR2(%v)", *realType.Size)
+		}
+	case element.DataDefCharacter:
+		realType := datatype.(*element.Char)
+		if realType.Size == nil {
+			name = "CHAR"
+		} else {
+			if realType.IsByteSize {
+				name = fmt.Sprintf("CHAR(%v BYTE)", *realType.Size)
+			} else if realType.IsCharSize {
+				name = fmt.Sprintf("CHAR(%v CHAR)", *realType.Size)
+			} else {
+				name = fmt.Sprintf("CHAR(%v)", *realType.Size)
+			}
+		}
+	case element.DataDefInteger:
+		name = "INTEGER"
+	case element.DataDefInt:
+		name = "INT"
+	case element.DataDefSmallInt:
+		name = "SMALLINT"
+	case element.DataDefLong:
+		name = "LONG"
+	case element.DataDefLongRaw:
+		name = "LONG RAW"
+	case element.DataDefFloat:
+		name = formatFloatType("FLOAT", datatype.(*element.Float))
+	case element.DataDefReal:
+		name = "REAL"
+	case element.DataDefBinaryFloat:
+		name = "BINARYFLOAT"
+	case element.DataDefBinaryDouble:
+		name = "BINARYDOUBLE"
+	case element.DataDefDoublePrecision:
+		name = "Double"
+	case element.DataDefDecimal:
+		name = formatNumberType("DECIMAL", datatype.(*element.Number))
+	case element.DataDefDec:
+		name = formatNumberType("DEC", datatype.(*element.Number))
+	case element.DataDefNumeric:
+		name = formatNumberType("NUMERIC", datatype.(*element.Number))
+	case element.DataDefNumber:
+		name = formatNumberType("NUMBER", datatype.(*element.Number))
+	case element.DataDefDate:
+		name = "DATE"
+	case element.DataDefTimestamp:
+		realType := datatype.(*element.Timestamp)
+		if realType.WithTimeZone {
+			if realType.FractionalSecondsPrecision == nil {
+				name = "TIMESTAMP WITH TIME ZONE"
+			} else {
+				name = fmt.Sprintf("TIMESTAMP(%v) WITH TIME ZONE", *realType.FractionalSecondsPrecision)
+			}
+		} else if realType.WithLocalTimeZone {
+			if realType.FractionalSecondsPrecision == nil {
+				name = "TIMESTAMP WITH LOCAL TIME ZONE"
+			} else {
+				name = fmt.Sprintf("TIMESTAMP(%v) WITH LOCAL TIME ZONE", *realType.FractionalSecondsPrecision)
+			}
+		} else {
+			if realType.FractionalSecondsPrecision == nil {
+				name = "TIMESTAMP"
+			} else {
+				name = fmt.Sprintf("TIMESTAMP(%v)", *realType.FractionalSecondsPrecision)
+			}
+		}
+	case element.DataDefRowId:
+		name = "ROWID"
+	case element.DataDefURowId:
+		realType := datatype.(*element.URowId)
+		if realType.Size == nil {
+			name = "UROWID"
+		} else {
+			name = fmt.Sprintf("UROWID(%v)", *realType.Size)
+		}
+	case element.DataDefBlob:
+		name = "BLOB"
+	case element.DataDefRaw:
+		realType := datatype.(*element.Raw)
+		if realType.Size == nil {
+			name = "RAW"
+		} else {
+			name = fmt.Sprintf("RAW(%v)", *realType.Size)
+		}
+	case element.DataDefBFile:
+		name = "BFILE"
+	case element.DataDefClob:
+		name = "CLOB"
+	case element.DataDefNClob:
+		name = "NCLOB"
+	case element.DataDefIntervalYear:
+		realType := datatype.(*element.IntervalYear)
+		if realType.Precision == nil {
+			name = "INTERVAL YEAR TO MONTH"
+		} else {
+			name = fmt.Sprintf("INTERVAL YEAR(%v) TO MONTH", *realType.Precision)
+		}
+	case element.DataDefIntervalDay:
+		realType := datatype.(*element.IntervalDay)
+		if realType.Precision == nil {
+			name = "INTERVAL DAY TO SECOND"
+		} else {
+			name = fmt.Sprintf("INTERVAL DAY(%v) TO SECOND", *realType.Precision)
+		}
+	case element.DataDefXMLType:
+		name = "XMLTYPE"
+	default:
+		name = "UnSupport"
+	}
+	return
+}
+
+func formatNumberType(typeName string, realType *element.Number) (name string) {
+	if realType.Precision == nil {
+		name = typeName
+	} else if realType.Scale == nil {
+		if realType.Precision.IsAsterisk {
+			name = fmt.Sprintf("%v(*)", typeName)
+		} else {
+			name = fmt.Sprintf("%v(%v)", typeName, realType.Precision.Number)
+		}
+	} else {
+		if realType.Precision.IsAsterisk {
+			name = fmt.Sprintf("%v(*,%v)", typeName, *realType.Scale)
+		} else {
+			name = fmt.Sprintf("%v(%v, %v)", typeName, realType.Precision.Number, *realType.Scale)
+		}
+	}
+	return
+}
+
+func formatFloatType(typeName string, realType *element.Float) (name string) {
+	if realType.Precision == nil {
+		name = typeName
+	} else {
+		if realType.Precision.IsAsterisk {
+			name = fmt.Sprintf("%v(*)", typeName)
+		} else {
+			name = fmt.Sprintf("%v(%v)", typeName, realType.Precision.Number)
+		}
+	}
+	return
+}
