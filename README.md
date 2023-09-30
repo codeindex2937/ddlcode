@@ -1,27 +1,34 @@
 # ddlcode
-convert DDL to code
+convert Oracle DDL to code
+
+# Support
+CREATE TABLE
+ADD CONSTRAINT ... FOREIGN KEY ... REFERENCES ...
 
 ## Reference
-https://github.com/zhufuyi/gotool/tree/main/pkg/sql2code
+https://github.com/zhufuyi/gotool/sql2code
 https://github.com/ikaiguang/go-sqlparser
 
 ## Example Code
 ```go
 
 func main() {
+
 	sql := `CREATE TABLE TBL (
 		ID1 INTEGER NOT NULL,
 		ID2 INTEGER NOT NULL,
-		DATE TIMESTAMP WITH TIMEZONE DEFAULT 0,
+		CREATED TIMESTAMP WITH TIME ZONE DEFAULT 0,
+		TEXT VARCHAR(1),
 		CONSTRAINT PK PRIMARY KEY (ID1, ID2)
 	);
 	CREATE TABLE TBL2 (
-		ID INTEGER NOT NULL,
+		ID3 INTEGER NOT NULL,
+		ID4 INTEGER NOT NULL,
 		TEXT BLOB UNIQUE,
-		CONSTRAINT PK PRIMARY KEY (ID)
-	);`
+		CONSTRAINT PK PRIMARY KEY (ID3, ID4)
+	);
+	ALTER TABLE TBL2 ADD CONSTRAINT fk_name FOREIGN KEY (ID1,ID2) REFERENCES TBL(ID3,ID4);`
 
-	sql = ddlcode.Generalize(sql)
 	tables := ddlcode.Parse(sql)
 
 	generateDrawio(tables)
