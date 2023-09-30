@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/codeindex2937/ddlcode/drawio"
@@ -109,7 +110,7 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 	y := 0
 
 	f := drawio.NewFile(config.Width, config.Height)
-	parent := f.Diagram.MxGraphModel.Shapes[1].(*drawio.Shape)
+	parent := f.Diagram.MxGraphModel.Cells[1].(*drawio.Shape)
 
 	for i, table := range config.Tables {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
@@ -162,8 +163,12 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 			target, source := link.NewEdgeLabel(config.EdgeLabelStyle)
 			target.Value = col.Name
 			source.Value = col.ForeignColumn.Name
-			f.Diagram.MxGraphModel.Shapes = append(f.Diagram.MxGraphModel.Shapes, link, target, source)
+			f.Diagram.MxGraphModel.AddCells(link, target, source)
 		}
+	}
+
+	if _, err := os.Stat(config.ExportPath); err == nil {
+		mergePosition(config.ExportPath, f)
 	}
 
 	file := File{
@@ -231,6 +236,38 @@ func getEntityBody(config DrawioConfig, table *Table) string {
 	}
 
 	return string(serialized)
+}
+
+func mergePosition(path string, f *drawio.MxFile) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	src := drawio.MxFile{}
+	if err := xml.Unmarshal(content, &src); err != nil {
+		log.Fatal(err)
+	}
+
+	fileEntities, fileLines := src.Diagram.MxGraphModel.GetEntities()
+	entities, lines := f.Diagram.MxGraphModel.GetEntities()
+	for k, entity := range entities {
+		fileEntity, ok := fileEntities[k]
+		if !ok {
+			continue
+		}
+
+		entity.Geometry = fileEntity.Geometry
+	}
+
+	for k, line := range lines {
+		fileLine, ok := fileLines[k]
+		if !ok {
+			continue
+		}
+
+		line.Style = fileLine.Style
+	}
 }
 
 func isCompositePrimaryKey(table *Table) bool {
