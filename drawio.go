@@ -1,133 +1,34 @@
 package ddlcode
 
 import (
-	"bytes"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
-	"text/template"
-	"time"
 
+	"github.com/codeindex2937/ddlcode/drawio"
+	"github.com/codeindex2937/ddlcode/html"
 	"github.com/codeindex2937/oracle-sql-parser/ast"
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
-	"github.com/google/uuid"
 	"github.com/iancoleman/strcase"
+	"golang.org/x/exp/maps"
 )
-
-type entity struct {
-	*Table
-	HeaderStyle string
-	TableStyle  string
-	CellStyle   string
-	X           int
-	Y           int
-	Width       int
-	Height      int
-}
 
 type DrawioConfig struct {
 	ExportPath     string
 	CellId         string
-	EntityStyle    string
+	EntityStyle    map[string]string
 	Width          int
 	Height         int
 	Tables         []*Table
-	Template       *template.Template
-	HeaderStyle    string
-	TableStyle     string
-	LinkStyle      string
-	EdgeLabelStyle string
-	CellStyle      string
+	HeaderStyle    map[string]string
+	TableStyle     map[string]string
+	LinkStyle      map[string]string
+	EdgeLabelStyle map[string]string
+	CellStyle      map[string]string
 }
-
-type drawioContext struct {
-	DrawioConfig
-	ModTime  string
-	Entities []entity
-	Links    []drawioLink
-}
-
-type drawioTable struct {
-	Id string
-}
-
-type drawioLink struct {
-	Id            string
-	LineStyle     string
-	Source        string
-	Target        string
-	LabelId       string
-	LabelStyle    string
-	RefColumn     string
-	ForeignColumn string
-}
-
-var DrawioFuncMap = template.FuncMap{
-	"GenUUID":   func() string { return uuid.NewString() },
-	"Half":      func(v int) int { return v / 2 },
-	"GetEntity": getEntity,
-}
-
-var DrawioTEmplate = `<mxfile host="Electron" modified="{{ .ModTime }}" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/21.7.5 Chrome/114.0.5735.289 Electron/25.8.1 Safari/537.36" etag="va3-sl2bMTW4jECdg_Ks" version="21.7.5" type="device">
-  <diagram name="Page-1" id="{{ GenUUID }}">
-    <mxGraphModel dx="{{Half .Width}}" dy="{{Half .Height}}" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="{{.Width}}" pageHeight="{{.Height}}" background="none" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-		{{- $config := . -}}
-		{{- range $i, $entity := .Entities }}
-        <mxCell id="{{$config.CellId}}-{{$i}}" value="{{ GetEntity $entity }}" style="{{ $config.EntityStyle }}" parent="1" vertex="1">
-          <mxGeometry x="{{ $entity.X }}" y="{{ $entity.Y }}" width="{{ $entity.Width }}" height="{{ $entity.Height }}" as="geometry" />
-        </mxCell>
-		{{- end }}
-		{{- range .Links }}
-			<mxCell id="{{ .Id }}" style="{{ .LineStyle }}" edge="1" parent="1" source="{{ .Source }}" target="{{ .Target }}">
-				<mxGeometry relative="1" as="geometry" />
-			</mxCell>
-			<mxCell id="{{ .LabelId }}-1" value="{{ .RefColumn }}" style="{{ .LabelStyle }}" parent="{{ .Id }}" vertex="1" connectable="0">
-				<mxGeometry x="-0.9" y="0" relative="1" as="geometry">
-					<mxPoint as="offset" />
-				</mxGeometry>
-			</mxCell>
-			<mxCell id="{{ .LabelId }}-2" value="{{ .ForeignColumn }}" style="{{ .LabelStyle }}" parent="{{ .Id }}" vertex="1" connectable="0">
-				<mxGeometry x="0.9" y="0" relative="1" as="geometry">
-					<mxPoint as="offset" />
-				</mxGeometry>
-			</mxCell>
-		{{- end }}
-      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>
-`
-
-var entityFuncMap = template.FuncMap{
-	"IsCompositePrimaryKey": isCompositePrimaryKey,
-	"GetDefaultValue":       getDefaultValueFromAttribute,
-	"ToSqlType":             toSqlType,
-}
-
-var entityTemplate, _ = template.New("drawioEntity").Funcs(entityFuncMap).Parse(
-	`<div style="display:flex;flex-direction:column;height:100%;"><div style="{{.HeaderStyle}}flex:0">{{ .Table.Name }}</div>
-<table style="{{.TableStyle}}flex:1;">
-{{- $ctx := . -}}
-{{- range .Table.Columns }}
-<tr>
-<td style="{{ $ctx.CellStyle }}">{{ .Name }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ ToSqlType .Type }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsNotNull }}NN{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsPrimaryKey }}PK{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsAutoIncrement }}AI{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ if .Attribute.IsUnique }}U{{else}}-{{ end }}</td>
-<td style="{{ $ctx.CellStyle }}">{{ GetDefaultValue .Attribute }}</td>
-</tr>
-{{- end }}
-</table></div>
-`)
 
 func GetDefaultDrawioConfig() DrawioConfig {
 	var err error
@@ -140,7 +41,7 @@ func GetDefaultDrawioConfig() DrawioConfig {
 
 	config := DrawioConfig{
 		CellId: hex.EncodeToString(buf),
-		EntityStyle: join(map[string]string{
+		EntityStyle: map[string]string{
 			"verticalAlign":        "top",
 			"align":                "left",
 			"overflow":             "fill",
@@ -152,21 +53,21 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"strokeWidth":          "1",
 			"fontFamily":           "Verdana",
 			"fontSize":             "12",
-		}, "="),
-		HeaderStyle: join(map[string]string{
+		},
+		HeaderStyle: map[string]string{
 			"box-sizing": "border-box",
 			"width":      "100%",
 			"background": "#e4e4e4",
 			"padding":    "2px",
 			"color":      "black",
-		}, ":"),
-		TableStyle: join(map[string]string{
+		},
+		TableStyle: map[string]string{
 			"width":           "100%",
 			"font-size":       "1em",
 			"background":      "DimGray",
 			"border-collapse": "collapse",
-		}, ":"),
-		LinkStyle: join(map[string]string{
+		},
+		LinkStyle: map[string]string{
 			"edgeStyle":      "orthogonalEdgeStyle",
 			"rounded":        "0",
 			"orthogonalLoop": "1",
@@ -180,32 +81,26 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"entryY":         "0.5",
 			"entryDx":        "0",
 			"entryDy":        "0",
-		}, "="),
-		EdgeLabelStyle: join(map[string]string{
+		},
+		EdgeLabelStyle: map[string]string{
 			"edgeLabel":     "",
 			"html":          "1",
 			"align":         "center",
 			"verticalAlign": "middle",
 			"resizable":     "0",
 			"points":        "[]",
-		}, "="),
-		CellStyle: join(map[string]string{
+		},
+		CellStyle: map[string]string{
 			"border": "1px solid",
-		}, ":"),
-	}
-
-	config.Template, err = template.New("drwaio").Funcs(DrawioFuncMap).Parse(DrawioTEmplate)
-	if err != nil {
-		log.Fatal(err)
+		},
 	}
 
 	return config
 }
 
 func GenerateDrawio(config DrawioConfig) (File, error) {
-	rowHeight := 16
-	entities := []entity{}
-	links := []drawioLink{}
+	var err error
+	rowHeight := 18
 	tableIdMap := map[string]string{}
 	lineInTotal := map[string]float64{}
 	lineOutTotal := map[string]float64{}
@@ -213,21 +108,18 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 	lineOutCount := map[string]float64{}
 	y := 0
 
-	for i, table := range config.Tables {
-		height := rowHeight*len(table.Columns) + 20
-		entities = append(entities, entity{
-			X:           0,
-			Y:           y,
-			Width:       350,
-			Height:      height,
-			HeaderStyle: config.HeaderStyle,
-			TableStyle:  config.TableStyle,
-			CellStyle:   config.CellStyle,
-			Table:       table,
-		})
-		y += height
+	f := drawio.NewFile(config.Width, config.Height)
+	parent := f.Diagram.MxGraphModel.Shapes[1].(*drawio.Shape)
 
+	for i, table := range config.Tables {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
+		height := rowHeight*len(table.Columns) + 20
+		entity := drawio.NewShape(tableId, 0, float64(y), 350, float64(height), config.EntityStyle)
+		entity.Value = getEntityBody(config, table)
+
+		f.Diagram.MxGraphModel.AddCells(entity)
+
+		y += height
 		tableIdMap[table.Name] = tableId
 		for _, col := range table.Columns {
 			if col.ForeignTable == nil {
@@ -246,6 +138,9 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 		lineInTotal[k] = v + 1
 	}
 
+	linkStyle := map[string]string{}
+	maps.Copy(linkStyle, config.LinkStyle)
+
 	for _, table := range config.Tables {
 		for _, col := range table.Columns {
 			if col.ForeignTable == nil {
@@ -254,63 +149,88 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 
 			lineOutCount[table.Name] += 1
 			lineInCount[col.ForeignTable.Name] += 1
-			entryPosition := fmt.Sprintf("entryX=%v;entryY=%v;", lineInCount[col.ForeignTable.Name]/lineInTotal[col.ForeignTable.Name], 1)
-			exitPosition := fmt.Sprintf("exitX=%v;exitY=%v;", lineOutCount[table.Name]/lineOutTotal[table.Name], 0)
+			linkStyle["entryX"] = fmt.Sprintf("%v", lineInCount[col.ForeignTable.Name]/lineInTotal[col.ForeignTable.Name])
+			linkStyle["entryY"] = "1"
+			linkStyle["exitX"] = fmt.Sprintf("%v", lineOutCount[table.Name]/lineOutTotal[table.Name])
+			linkStyle["exitY"] = "0"
 
-			link := drawioLink{
-				Id:            fmt.Sprintf("%v-1", randId()),
-				LineStyle:     config.LinkStyle + entryPosition + exitPosition,
-				Source:        tableIdMap[table.Name],
-				Target:        tableIdMap[col.ForeignTable.Name],
-				LabelStyle:    config.EdgeLabelStyle,
-				LabelId:       randId(),
-				ForeignColumn: col.ForeignColumn.Name,
-				RefColumn:     col.Name,
-			}
-			links = append(links, link)
+			link := drawio.NewLine(
+				parent.Id,
+				tableIdMap[table.Name],
+				tableIdMap[col.ForeignTable.Name],
+				linkStyle)
+			target, source := link.NewEdgeLabel(config.EdgeLabelStyle)
+			target.Value = col.Name
+			source.Value = col.ForeignColumn.Name
+			f.Diagram.MxGraphModel.Shapes = append(f.Diagram.MxGraphModel.Shapes, link, target, source)
 		}
 	}
 
-	ctx := drawioContext{}
-	ctx.DrawioConfig = config
-	ctx.Entities = entities
-	ctx.Links = links
-	ctx.ModTime = time.Now().Format("2006-01-02T15:04:05.999Z")
-
-	file, err := generateFile(config.Template, config.ExportPath, ctx)
-	if err != nil {
-		return File{}, err
+	file := File{
+		Path: config.ExportPath,
 	}
 
+	file.Content, err = xml.MarshalIndent(f, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
 	return file, nil
 }
 
-func randId() string {
-	r := make([]byte, 15)
-	if _, err := rand.Read(r); err != nil {
+func getEntityBody(config DrawioConfig, table *Table) string {
+	entity := html.Entity{}
+	entity.Style = join(map[string]string{
+		"display":        "flex",
+		"flex-direction": "column",
+		"height":         "100%",
+	}, ":")
+	entity.Title.Body = table.Name
+	entity.Title.Style = join(config.HeaderStyle, ":") + "flex:0;"
+	entity.Table.Style = join(config.TableStyle, ":") + "flex:1;"
+	dataStyle := join(config.CellStyle, ":")
+
+	for _, col := range table.Columns {
+		notNull := "-"
+		pk := "-"
+		autoIncrement := "-"
+		unique := "-"
+
+		if col.Attribute.IsNotNull() {
+			notNull = "NN"
+		}
+		if col.Attribute.IsPrimaryKey() {
+			pk = "PK"
+		}
+		if col.Attribute.IsAutoIncrement() {
+			autoIncrement = "AI"
+		}
+		if col.Attribute.IsUnique() {
+			unique = "U"
+		}
+
+		row := html.TableRow{
+			Data: []html.TableData{
+				{Data: col.Name},
+				{Data: toSqlType(col.Type)},
+				{Data: notNull},
+				{Data: pk},
+				{Data: autoIncrement},
+				{Data: unique},
+				{Data: getDefaultValueFromAttribute(col.Attribute)},
+			},
+		}
+		for i := range row.Data {
+			row.Data[i].Style = dataStyle
+		}
+		entity.Table.Row = append(entity.Table.Row, row)
+	}
+
+	serialized, err := xml.Marshal(entity)
+	if err != nil {
 		log.Fatal(err)
 	}
 
-	return base64.StdEncoding.EncodeToString(r)
-}
-
-func getEntity(e entity) string {
-	buf := bytes.NewBuffer([]byte{})
-	if err := entityTemplate.Execute(buf, e); err != nil {
-		log.Fatal(err)
-	}
-
-	replacements := map[string]string{
-		"&":  "&amp;",
-		"<":  "&lt;",
-		">":  "&gt;",
-		`"`:  "&quot;",
-		"'":  "&apos;",
-		"\n": "",
-	}
-	return regexp.MustCompile(`&|<|>|"|'|\n`).ReplaceAllStringFunc(buf.String(), func(noe string) string {
-		return replacements[noe]
-	})
+	return string(serialized)
 }
 
 func isCompositePrimaryKey(table *Table) bool {
