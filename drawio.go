@@ -15,7 +15,11 @@ import (
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 	"github.com/iancoleman/strcase"
 	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
+
+var rowHeight = 18
+var titleHeight = 20
 
 type DrawioConfig struct {
 	ExportPath     string
@@ -69,7 +73,7 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"border-collapse": "collapse",
 		},
 		LinkStyle: map[string]string{
-			"edgeStyle":      "orthogonalEdgeStyle",
+			"edgeStyle":      "entityRelationEdgeStyle",
 			"rounded":        "0",
 			"orthogonalLoop": "1",
 			"jettySize":      "auto",
@@ -101,12 +105,7 @@ func GetDefaultDrawioConfig() DrawioConfig {
 
 func GenerateDrawio(config DrawioConfig) (File, error) {
 	var err error
-	rowHeight := 18
 	tableIdMap := map[string]string{}
-	lineInTotal := map[string]float64{}
-	lineOutTotal := map[string]float64{}
-	lineInCount := map[string]float64{}
-	lineOutCount := map[string]float64{}
 	y := 0
 
 	f := drawio.NewFile(config.Width, config.Height)
@@ -114,7 +113,7 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 
 	for i, table := range config.Tables {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
-		height := rowHeight*len(table.Columns) + 20
+		height := rowHeight*len(table.Columns) + titleHeight
 		entity := drawio.NewShape(tableId, 0, float64(y), 350, float64(height), config.EntityStyle)
 		entity.Value = getEntityBody(config, table)
 
@@ -126,17 +125,7 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 			if col.ForeignTable == nil {
 				continue
 			}
-			lineOutTotal[table.Name] += 1
-			lineInTotal[col.ForeignTable.Name] += 1
 		}
-	}
-
-	for k, v := range lineOutTotal {
-		lineOutTotal[k] = v + 1
-	}
-
-	for k, v := range lineInTotal {
-		lineInTotal[k] = v + 1
 	}
 
 	linkStyle := map[string]string{}
@@ -148,12 +137,10 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 				continue
 			}
 
-			lineOutCount[table.Name] += 1
-			lineInCount[col.ForeignTable.Name] += 1
-			linkStyle["entryX"] = fmt.Sprintf("%v", lineInCount[col.ForeignTable.Name]/lineInTotal[col.ForeignTable.Name])
-			linkStyle["entryY"] = "1"
-			linkStyle["exitX"] = fmt.Sprintf("%v", lineOutCount[table.Name]/lineOutTotal[table.Name])
-			linkStyle["exitY"] = "0"
+			linkStyle["entryX"] = "0"
+			linkStyle["entryY"] = fmt.Sprintf("%v", getRelativeVerticalColumnPosition(col.ForeignTable, col.ForeignColumn.Name))
+			linkStyle["exitX"] = "1"
+			linkStyle["exitY"] = fmt.Sprintf("%v", getRelativeVerticalColumnPosition(table, col.Name))
 
 			link := drawio.NewLine(
 				parent.Id,
@@ -249,8 +236,8 @@ func mergePosition(path string, f *drawio.MxFile) {
 		log.Fatal(err)
 	}
 
-	fileEntities, fileLines := src.Diagram.MxGraphModel.GetEntities()
-	entities, lines := f.Diagram.MxGraphModel.GetEntities()
+	fileEntities := GetEntities(src.Diagram.MxGraphModel)
+	entities := GetEntities(f.Diagram.MxGraphModel)
 	for k, entity := range entities {
 		fileEntity, ok := fileEntities[k]
 		if !ok {
@@ -258,15 +245,6 @@ func mergePosition(path string, f *drawio.MxFile) {
 		}
 
 		entity.Geometry = fileEntity.Geometry
-	}
-
-	for k, line := range lines {
-		fileLine, ok := fileLines[k]
-		if !ok {
-			continue
-		}
-
-		line.Style = fileLine.Style
 	}
 }
 
@@ -527,4 +505,50 @@ func formatFloatType(typeName string, realType *element.Float) (name string) {
 		}
 	}
 	return
+}
+
+func GetEntities(m drawio.MxGraphModel) map[string]*drawio.Shape {
+	shapes := make(map[string]*drawio.Shape)
+	entityIdMap := make(map[string]html.Entity)
+
+	for _, cell := range m.Cells {
+		shape, ok := cell.(*drawio.Shape)
+		if !ok {
+			continue
+		}
+		if len(shape.Value) < 1 {
+			continue
+		}
+
+		entity := html.Entity{}
+		if err := xml.Unmarshal([]byte(shape.Value), &entity); err != nil {
+			log.Fatal(err)
+		}
+
+		shapes[entity.Title.Body] = shape
+		entityIdMap[shape.Id] = entity
+	}
+
+	return shapes
+}
+
+func getRelativeVerticalColumnPosition(table *Table, columnName string) float64 {
+	index := slices.IndexFunc(table.Columns, func(column *Column) bool { return column.Name == columnName })
+	entityHeight := rowHeight*len(table.Columns) + titleHeight
+	return ((float64(index)+0.5)*float64(rowHeight) + float64(titleHeight)) / float64(entityHeight)
+}
+
+func getColumnNameFromRelativePosition(rows []html.TableRow, position float64) string {
+	index := int((position*float64(len(rows)) + (position-1)*float64(titleHeight)/float64(rowHeight)))
+	return rows[index].Data[0].Data
+}
+
+func getValueFromStyleString(styleString string, name string) string {
+	for _, stmt := range strings.Split(styleString, ";") {
+		index := strings.Index(stmt, "=")
+		if stmt[:index] == name {
+			return stmt[index+1:]
+		}
+	}
+	return ""
 }

@@ -2,13 +2,9 @@ package drawio
 
 import (
 	"encoding/xml"
-	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/codeindex2937/ddlcode/html"
 )
 
 type MxFile struct {
@@ -89,69 +85,6 @@ func (m *MxGraphModel) AddCells(cells ...MxCell) {
 	}
 
 	m.Cells = append(m.Cells, cells...)
-}
-
-func (m MxGraphModel) GetEntities() (map[string]*Shape, map[string]*Line) {
-	shapes := make(map[string]*Shape)
-	lines := make(map[string]*Line)
-	entityIdMap := make(map[string]html.Entity)
-	sourceLabelMap := make(map[string]*Label)
-	targetLabelMap := make(map[string]*Label)
-
-	for _, cell := range m.Cells {
-		shape, ok := cell.(*Shape)
-		if !ok {
-			continue
-		}
-		if len(shape.Value) < 1 {
-			continue
-		}
-
-		entity := html.Entity{}
-		if err := xml.Unmarshal([]byte(shape.Value), &entity); err != nil {
-			log.Fatal(err)
-		}
-
-		shapes[entity.Title.Body] = shape
-		entityIdMap[shape.Id] = entity
-	}
-
-	for _, cell := range m.Cells {
-		label, ok := cell.(*Label)
-		if !ok {
-			continue
-		}
-
-		x, err := strconv.ParseFloat(label.Geometry.X, 64)
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		if x < 0 {
-			sourceLabelMap[label.Parent] = label
-		} else {
-			targetLabelMap[label.Parent] = label
-		}
-	}
-
-	for _, cell := range m.Cells {
-		line, ok := cell.(*Line)
-		if !ok {
-			continue
-		}
-
-		foreignTableName := entityIdMap[line.Source].Title.Body
-		referenceTableName := entityIdMap[line.Target].Title.Body
-		key := fmt.Sprintf("%v.%v.%v.%v",
-			foreignTableName,
-			sourceLabelMap[line.Id].Value,
-			referenceTableName,
-			targetLabelMap[line.Id].Value,
-		)
-		lines[key] = line
-	}
-
-	return shapes, lines
 }
 
 type MxCell interface {
