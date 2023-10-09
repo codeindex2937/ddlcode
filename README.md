@@ -1,13 +1,13 @@
 # ddlcode
-convert Oracle DDL to code
+Generate code from Oracle DDL
 
-# Support
+## Support
 CREATE TABLE
 ADD CONSTRAINT ... FOREIGN KEY ... REFERENCES ...
 
 ## Reference
-https://github.com/zhufuyi/gotool/sql2code
-https://github.com/ikaiguang/go-sqlparser
+[sql2code](https://github.com/zhufuyi/gotool/sql2code)
+[go-sqlparser](https://github.com/ikaiguang/go-sqlparser)
 
 ## Example Code
 ```go
