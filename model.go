@@ -1,10 +1,9 @@
 package ddlcode
 
 import (
-	"slices"
-
 	"github.com/codeindex2937/oracle-sql-parser/ast"
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
+	"golang.org/x/exp/slices"
 )
 
 type AttributeMap map[ast.ConstraintType]*ast.ColumnDefault
