@@ -280,10 +280,14 @@ func toJavaType(datatype element.Datatype) (name string) {
 		name = "Long"
 	case element.DataDefFloat, element.DataDefReal, element.DataDefBinaryFloat:
 		name = "Float"
-	case element.DataDefNumber, element.DataDefBinaryDouble, element.DataDefDoublePrecision:
+	case element.DataDefBinaryDouble, element.DataDefDoublePrecision:
 		name = "Double"
-	case element.DataDefDecimal, element.DataDefDec, element.DataDefNumeric:
-		name = "BigDecimal"
+	case element.DataDefNumber, element.DataDefDecimal, element.DataDefDec, element.DataDefNumeric:
+		if datatype.(*element.Number).Precision == nil || datatype.(*element.Number).Precision.Number == 0 {
+			name = "Long"
+		} else {
+			name = "BigDecimal"
+		}
 	case element.DataDefDate:
 		name = "Date"
 	case element.DataDefTimestamp:
