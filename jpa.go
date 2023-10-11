@@ -76,21 +76,22 @@ public class {{ToCamel .Table.Name}}Entity {
     }
 {{end}}
 
-  public boolean equals(Object o) {
-    if (this == o) {
-      return true;
-    }
-    if (o == null || getClass() != o.getCleass()) {
-      return false;
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+
+        {{ToCamel .Table.Name}}Entity that = ({{ToCamel .Table.Name}}Entity)o;
+        return {{CompareFields .Table "that"}};
     }
 
-    {{ToCamel .Table.Name}}Entity that = ({{ToCamel .Table.Name}}Entity)o;
-    return {{CompareFields .Table "that"}};
-  }
-
-  public int hashCode() {
-    return Objects.hash({{GetAllFields .Table}});
-  }
+    @Override
+    public int hashCode() {
+        return Objects.hash({{GetAllFields .Table}});
+    }
 }
 `
 
