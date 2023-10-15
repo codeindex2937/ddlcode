@@ -10,6 +10,8 @@ import (
 
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 	"github.com/iancoleman/strcase"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 )
 
 type JavaConfig struct {
@@ -51,6 +53,7 @@ var JavaEntityTemplate = `package {{.Package}}.jpa;
 import javax.persistence.*;
 import java.util.Objects;
 {{ GetImportPaths .Table }}
+
 @Entity
 @Table(name = "{{.Table.Name}}"{{if gt (len .Schema) 0}}, schema = "{{.Schema}}"{{end}})
 {{- if IsCompositePrimaryKey .Table}}
@@ -101,6 +104,7 @@ import javax.persistence.*;
 import java.util.Objects;
 import java.io.Serializable;
 {{ GetPkImportPaths .Table }}
+
 public class {{ToCamel .Table.Name}}PK implements Serializable {
 {{range .Table.Columns}}
 {{- if .Attribute.IsPrimaryKey}}
@@ -241,34 +245,45 @@ func compareJavaPkFields(table *Table, otherName string) string {
 }
 
 func getJavaPkImportPaths(table *Table) (name string) {
-	importPaths := []string{}
+	cols := []*Column{}
 	for _, c := range table.Columns {
 		if !c.Attribute.IsPrimaryKey() {
 			continue
 		}
-		javaType := toJavaType(c.Type)
-		switch javaType {
-		case "Date":
-			importPaths = append(importPaths, "import java.util.Date;")
-		case "BigDecimal":
-			importPaths = append(importPaths, "importjava.math.BigDecimal;")
-		}
+		cols = append(cols, c)
 	}
+	importPaths := getImportPaths(cols)
 	return strings.Join(importPaths, "\n")
 }
 
 func getJavaImportPaths(table *Table) (name string) {
-	importPaths := []string{}
-	for _, c := range table.Columns {
+	importPaths := getImportPaths(table.Columns)
+	return strings.Join(importPaths, "\n")
+}
+
+func getImportPaths(cs []*Column) []string {
+	importPaths := map[string]struct{}{}
+	for _, c := range cs {
 		javaType := toJavaType(c.Type)
 		switch javaType {
+		case "RowId":
+			importPaths["import java.sql.RowId;"] = struct{}{}
+		case "Blob":
+			importPaths["import java.sql.Clob;"] = struct{}{}
+		case "Clob":
+			importPaths["import java.sql.Blob;"] = struct{}{}
+		case "Timestamp":
+			importPaths["import java.sql.Timestamp;"] = struct{}{}
 		case "Date":
-			importPaths = append(importPaths, "import java.util.Date;\n")
+			importPaths["import java.util.Date;"] = struct{}{}
 		case "BigDecimal":
-			importPaths = append(importPaths, "importjava.math.BigDecimal;\n")
+			importPaths["import java.math.BigDecimal;"] = struct{}{}
 		}
 	}
-	return strings.Join(importPaths, "")
+
+	paths := maps.Keys(importPaths)
+	slices.Sort(paths)
+	return paths
 }
 
 func toJavaType(datatype element.Datatype) (name string) {
@@ -292,13 +307,13 @@ func toJavaType(datatype element.Datatype) (name string) {
 	case element.DataDefDate:
 		name = "Date"
 	case element.DataDefTimestamp:
-		name = "java.sql.Timestamp"
+		name = "Timestamp"
 	case element.DataDefRowId, element.DataDefURowId:
-		name = "java.sql.RowId"
+		name = "RowId"
 	case element.DataDefBlob, element.DataDefRaw, element.DataDefBFile:
-		name = "java.sql.Blob"
+		name = "Blob"
 	case element.DataDefClob, element.DataDefNClob:
-		name = "java.sql.Clob"
+		name = "Clob"
 	case element.DataDefIntervalYear, element.DataDefIntervalDay:
 		name = "UnSupport"
 	default:
