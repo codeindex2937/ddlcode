@@ -153,7 +153,7 @@ import {{.Package}}.jpa.{{ToCamel .Table.Name}}PK;
 {{- end}}
 {{- $pkType := GetPkType .Table }}
 
-public interface {{ToCamel .Table.Name}}Dao extends CrudRepository<{{ToCamel .Table.Name}}Entity,{{$pkType}}> {
+public interface {{ToCamel .Table.Name}}Dao extends CrudRepository<{{ToCamel .Table.Name}}Entity, {{$pkType}}> {
 }
 `
 
