@@ -299,7 +299,7 @@ func toJavaType(datatype element.Datatype) (name string) {
 	case element.DataDefBinaryDouble, element.DataDefDoublePrecision:
 		name = "Double"
 	case element.DataDefNumber, element.DataDefDecimal, element.DataDefDec, element.DataDefNumeric:
-		if datatype.(*element.Number).Precision == nil || datatype.(*element.Number).Precision.Number == 0 {
+		if datatype.(*element.Number).Scale == nil || *datatype.(*element.Number).Scale == 0 {
 			name = "Long"
 		} else {
 			name = "BigDecimal"
