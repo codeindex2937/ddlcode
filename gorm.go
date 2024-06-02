@@ -110,7 +110,7 @@ func toTags(col Column) string {
 		gormTag.WriteString(";NOT NULL")
 	}
 
-	return fmt.Sprintf(`"gorm:%v"`, gormTag.String())
+	return fmt.Sprintf(`gorm:"%v"`, gormTag.String())
 }
 
 func toGoType(datatype element.Datatype, attrs AttributeMap) (name string) {
