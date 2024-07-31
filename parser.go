@@ -31,9 +31,9 @@ func Parse(sql string) []*Table {
 						for i, k := range spec.Columns {
 							refTable := tableMap[spec.Reference.Table.Table.Value]
 							columnName := spec.Reference.Columns[i].Value
-							c := table.getColumn(columnName)
+							c := table.getColumn(k.Value)
 							c.ForeignTable = refTable
-							c.ForeignColumn = refTable.getColumn(k.Value)
+							c.ForeignColumn = refTable.getColumn(columnName)
 						}
 					}
 				}
