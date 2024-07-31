@@ -20,6 +20,14 @@ func Parse(sql string) []*Table {
 			table := translateTable(ct)
 			tables = append(tables, table)
 			tableMap[table.Name] = table
+
+			for _, spec := range getForeignConstraints(ct.RelTable.TableStructs) {
+				switch spec.InlineConstraint.Type {
+				case ast.ConstraintTypeReferences:
+					refTable := tableMap[spec.Reference.Table.Table.Value]
+					assignRefColumns(table, refTable, spec)
+				}
+			}
 		}
 
 		if alterStmt, ok := stmt.(*ast.AlterTableStmt); ok {
@@ -28,13 +36,8 @@ func Parse(sql string) []*Table {
 				for _, spec := range clause.Constraints {
 					switch spec.InlineConstraint.Type {
 					case ast.ConstraintTypeReferences:
-						for i, k := range spec.Columns {
-							refTable := tableMap[spec.Reference.Table.Table.Value]
-							columnName := spec.Reference.Columns[i].Value
-							c := table.getColumn(k.Value)
-							c.ForeignTable = refTable
-							c.ForeignColumn = refTable.getColumn(columnName)
-						}
+						refTable := tableMap[spec.Reference.Table.Table.Value]
+						assignRefColumns(table, refTable, spec)
 					}
 				}
 			}
@@ -42,6 +45,15 @@ func Parse(sql string) []*Table {
 	}
 
 	return tables
+}
+
+func assignRefColumns(table, refTable *Table, spec *ast.OutOfLineConstraint) {
+	for i, k := range spec.Columns {
+		columnName := spec.Reference.Columns[i].Value
+		c := table.getColumn(k.Value)
+		c.ForeignTable = refTable
+		c.ForeignColumn = refTable.getColumn(columnName)
+	}
 }
 
 func translateTable(ct *ast.CreateTableStmt) *Table {
@@ -84,6 +96,17 @@ func getPkConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineC
 	for _, t := range stmts {
 		if con, ok := t.(*ast.OutOfLineConstraint); ok {
 			if con.Type == ast.ConstraintTypePK {
+				constraints = append(constraints, con)
+			}
+		}
+	}
+	return
+}
+
+func getForeignConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineConstraint) {
+	for _, t := range stmts {
+		if con, ok := t.(*ast.OutOfLineConstraint); ok {
+			if con.Type == ast.ConstraintTypeReferences {
 				constraints = append(constraints, con)
 			}
 		}
