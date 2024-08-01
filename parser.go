@@ -14,14 +14,27 @@ func Parse(sql string) []*Table {
 	}
 
 	tableMap := map[string]*Table{}
-	tables := []*Table{}
-	for _, stmt := range stmts {
-		if ct, ok := stmt.(*ast.CreateTableStmt); ok {
-			table := translateTable(ct)
-			tables = append(tables, table)
-			tableMap[table.Name] = table
+	createStmts := getCreateTableStatements(stmts)
+	for _, createStmt := range createStmts {
+		table := translateTable(createStmt)
+		tableMap[table.Name] = table
+	}
 
-			for _, spec := range getForeignConstraints(ct.RelTable.TableStructs) {
+	for _, createStmt := range createStmts {
+		table := tableMap[createStmt.TableName.Table.Value]
+		for _, spec := range getReferenceConstraints(createStmt.RelTable.TableStructs) {
+			switch spec.InlineConstraint.Type {
+			case ast.ConstraintTypeReferences:
+				refTable := tableMap[spec.Reference.Table.Table.Value]
+				assignRefColumns(table, refTable, spec)
+			}
+		}
+	}
+
+	for _, alterStmt := range getAlterTableStatements(stmts) {
+		table := tableMap[alterStmt.TableName.Table.Value]
+		for _, clause := range getAddConstraint(alterStmt) {
+			for _, spec := range clause.Constraints {
 				switch spec.InlineConstraint.Type {
 				case ast.ConstraintTypeReferences:
 					refTable := tableMap[spec.Reference.Table.Table.Value]
@@ -29,21 +42,12 @@ func Parse(sql string) []*Table {
 				}
 			}
 		}
-
-		if alterStmt, ok := stmt.(*ast.AlterTableStmt); ok {
-			table := tableMap[alterStmt.TableName.Table.Value]
-			for _, clause := range getAddConstraint(alterStmt) {
-				for _, spec := range clause.Constraints {
-					switch spec.InlineConstraint.Type {
-					case ast.ConstraintTypeReferences:
-						refTable := tableMap[spec.Reference.Table.Table.Value]
-						assignRefColumns(table, refTable, spec)
-					}
-				}
-			}
-		}
 	}
 
+	tables := []*Table{}
+	for _, t := range tableMap {
+		tables = append(tables, t)
+	}
 	return tables
 }
 
@@ -92,22 +96,46 @@ func translateTable(ct *ast.CreateTableStmt) *Table {
 	return table
 }
 
+func getCreateTableStatements(stmts []ast.Node) []*ast.CreateTableStmt {
+	createTableStmts := []*ast.CreateTableStmt{}
+	for _, s := range stmts {
+		switch stmt := s.(type) {
+		case *ast.CreateTableStmt:
+			createTableStmts = append(createTableStmts, stmt)
+		}
+	}
+	return createTableStmts
+}
+
+func getAlterTableStatements(stmts []ast.Node) []*ast.AlterTableStmt {
+	alterTableStmts := []*ast.AlterTableStmt{}
+	for _, s := range stmts {
+		switch stmt := s.(type) {
+		case *ast.AlterTableStmt:
+			alterTableStmts = append(alterTableStmts, stmt)
+		}
+	}
+	return alterTableStmts
+}
+
 func getPkConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineConstraint) {
 	for _, t := range stmts {
-		if con, ok := t.(*ast.OutOfLineConstraint); ok {
-			if con.Type == ast.ConstraintTypePK {
-				constraints = append(constraints, con)
+		switch constraint := t.(type) {
+		case *ast.OutOfLineConstraint:
+			if constraint.Type == ast.ConstraintTypePK {
+				constraints = append(constraints, constraint)
 			}
 		}
 	}
 	return
 }
 
-func getForeignConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineConstraint) {
+func getReferenceConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOfLineConstraint) {
 	for _, t := range stmts {
-		if con, ok := t.(*ast.OutOfLineConstraint); ok {
-			if con.Type == ast.ConstraintTypeReferences {
-				constraints = append(constraints, con)
+		switch constraint := t.(type) {
+		case *ast.OutOfLineConstraint:
+			if constraint.Type == ast.ConstraintTypeReferences {
+				constraints = append(constraints, constraint)
 			}
 		}
 	}
@@ -116,8 +144,9 @@ func getForeignConstraints(stmts []ast.TableStructDef) (constraints []*ast.OutOf
 
 func getColumnDefs(stmts []ast.TableStructDef) (defs []*ast.ColumnDef) {
 	for _, t := range stmts {
-		if con, ok := t.(*ast.ColumnDef); ok {
-			defs = append(defs, con)
+		switch constraint := t.(type) {
+		case *ast.ColumnDef:
+			defs = append(defs, constraint)
 		}
 	}
 	return
@@ -125,7 +154,8 @@ func getColumnDefs(stmts []ast.TableStructDef) (defs []*ast.ColumnDef) {
 
 func getAddConstraint(stmt *ast.AlterTableStmt) (clauses []*ast.AddConstraintClause) {
 	for _, clause := range stmt.AlterTableClauses {
-		if constraint, ok := clause.(*ast.AddConstraintClause); ok {
+		switch constraint := clause.(type) {
+		case *ast.AddConstraintClause:
 			clauses = append(clauses, constraint)
 		}
 	}
