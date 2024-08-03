@@ -11,6 +11,7 @@ import (
 
 	"github.com/codeindex2937/ddlcode/drawio"
 	"github.com/codeindex2937/ddlcode/html"
+	"github.com/codeindex2937/ddlcode/toposort"
 	"github.com/codeindex2937/oracle-sql-parser/ast"
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
 	"github.com/iancoleman/strcase"
@@ -33,6 +34,11 @@ type DrawioConfig struct {
 	LinkStyle      map[string]string
 	EdgeLabelStyle map[string]string
 	CellStyle      map[string]string
+}
+
+type position struct {
+	x int
+	y int
 }
 
 func GetDefaultDrawioConfig() DrawioConfig {
@@ -106,26 +112,23 @@ func GetDefaultDrawioConfig() DrawioConfig {
 func GenerateDrawio(config DrawioConfig) (File, error) {
 	var err error
 	tableIdMap := map[string]string{}
-	y := 0
 
 	f := drawio.NewFile(config.Width, config.Height)
 	parent := f.Diagram.MxGraphModel.Cells[1].(*drawio.Shape)
+	tableWidth := 350
+
+	positionMap := getPositions(config.Tables, func(rowNum int) int { return rowHeight*rowNum + titleHeight }, tableWidth+200)
 
 	for i, table := range config.Tables {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
 		height := rowHeight*len(table.Columns) + titleHeight
-		entity := drawio.NewShape(tableId, 0, float64(y), 350, float64(height), config.EntityStyle)
+		position := positionMap[table.Name]
+		entity := drawio.NewShape(tableId, float64(position.x), float64(position.y), float64(tableWidth), float64(height), config.EntityStyle)
 		entity.Value = getEntityBody(config, table)
 
 		f.Diagram.MxGraphModel.AddCells(entity)
 
-		y += height
 		tableIdMap[table.Name] = tableId
-		for _, col := range table.Columns {
-			if col.ForeignTable == nil {
-				continue
-			}
-		}
 	}
 
 	linkStyle := map[string]string{}
@@ -167,6 +170,107 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 		log.Fatal(err)
 	}
 	return file, nil
+}
+
+func getPositions(tables []*Table, h func(int) int, w int) map[string]position {
+	tableMap := map[string]*Table{}
+	for _, table := range tables {
+		tableMap[table.Name] = table
+	}
+
+	layers := sortIntoLayers(tableMap)
+	isolatedNoes := []string{}
+	isolatedTotalHeight := 0
+	for key := range tableMap {
+		if _, ok := layers[key]; !ok {
+			isolatedNoes = append(isolatedNoes, key)
+			isolatedTotalHeight += h(len(tableMap[key].Columns))
+		}
+	}
+	slices.Sort(isolatedNoes)
+
+	positionMap := map[string]position{}
+	maxLayer := slices.Max(values(layers))
+	avgIsolatedHeight := isolatedTotalHeight / (maxLayer + 1)
+	currentHeight := 0
+	maxIsolatedHeight := 0
+	column := 0
+	for _, key := range isolatedNoes {
+		positionMap[key] = position{
+			x: column * w,
+			y: currentHeight,
+		}
+		currentHeight += h(len(tableMap[key].Columns))
+		if maxIsolatedHeight < currentHeight {
+			maxIsolatedHeight = currentHeight
+		}
+
+		if currentHeight >= avgIsolatedHeight {
+			currentHeight = 0
+			column += 1
+			continue
+		}
+	}
+
+	layerCurrentHeight := map[int]int{}
+	for key := range tableMap {
+		if slices.Contains(isolatedNoes, key) {
+			continue
+		}
+		layer := (maxLayer - layers[key])
+		positionMap[key] = position{
+			x: layer * w,
+			y: maxIsolatedHeight + layerCurrentHeight[layer],
+		}
+		layerCurrentHeight[layer] += h(len(tableMap[key].Columns))
+	}
+	return positionMap
+}
+
+func values[K comparable, V any](m map[K]V) []V {
+	values := []V{}
+	for _, v := range m {
+		values = append(values, v)
+	}
+	return values
+}
+
+func sortIntoLayers(tables map[string]*Table) map[string]int {
+	g := toposort.NewGraph[string]()
+	for _, t := range tables {
+		for _, c := range t.Columns {
+			if c.ForeignTable == nil {
+				continue
+			}
+			g.AddEdge(t.Name, c.ForeignTable.Name)
+		}
+	}
+
+	linearOrders, _ := g.Sort()
+	layerOrders := map[string]int{}
+	for _, key := range reverseSlice(linearOrders) {
+		neighborOrders := []int{}
+		for _, k := range g.Neighbors(key) {
+			neighborOrders = append(neighborOrders, layerOrders[k])
+		}
+		if len(neighborOrders) == 0 {
+			layerOrders[key] = 0
+			continue
+		} else {
+			layerOrders[key] = slices.Max(neighborOrders) + 1
+		}
+	}
+
+	return layerOrders
+}
+
+func reverseSlice[V any](src []V) []V {
+	s := len(src)
+	t := make([]V, s)
+	for i, v := range src {
+		t[s-i-1] = v
+	}
+	return t
 }
 
 func getEntityBody(config DrawioConfig, table *Table) string {
