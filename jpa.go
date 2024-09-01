@@ -37,11 +37,11 @@ var JavaFuncMap = template.FuncMap{
 	"GetPkImportPaths":      getJavaPkImportPaths,
 	"GetPkType": func(table *Table) string {
 		if isCompositePrimaryKey(table) {
-			return strcase.ToCamel(table.Name) + "PK"
+			return strcase.ToCamel(table.Table) + "PK"
 		}
 		for _, col := range table.Columns {
 			if col.Attribute.IsPrimaryKey() {
-				return toJavaType(col.Type)
+				return toJavaType(col.DataType)
 			}
 		}
 		return "Unknown"
@@ -183,7 +183,7 @@ func GetDefaultJavaConfig() JavaConfig {
 
 func GenerateJava(config JavaConfig) ([]File, error) {
 	files := []File{}
-	entityName := strcase.ToCamel(config.Table.Name)
+	entityName := strcase.ToCamel(config.Table.Table)
 	entityFile, err := generateFile(config.Template, filepath.Join(config.ExportDir, "jpa", entityName+"Entity.java"), config)
 	if err != nil {
 		return nil, err
@@ -264,7 +264,7 @@ func getJavaImportPaths(table *Table) (name string) {
 func getImportPaths(cs []*Column) []string {
 	importPaths := map[string]struct{}{}
 	for _, c := range cs {
-		javaType := toJavaType(c.Type)
+		javaType := toJavaType(c.DataType)
 		switch javaType {
 		case "RowId":
 			importPaths["import java.sql.RowId;"] = struct{}{}

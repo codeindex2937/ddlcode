@@ -56,7 +56,7 @@ func GetDefaultGormConfig() GormConfig {
 
 func GenerateGorm(config GormConfig) ([]File, error) {
 	files := []File{}
-	entityName := strcase.ToLowerCamel(config.Table.Name)
+	entityName := strcase.ToLowerCamel(config.Table.Table)
 	entityFile, err := generateFile(config.Template, filepath.Join(config.ExportDir, entityName+".go"), config)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func toTags(col Column) string {
 	gormTag.WriteString(strcase.ToLowerCamel(col.Name))
 
 	gormTag.WriteString(";type:")
-	gormTag.WriteString(toGoType(col.Type, col.Attribute))
+	gormTag.WriteString(toGoType(col.DataType, col.Attribute))
 
 	if col.Attribute.IsPrimaryKey() {
 		gormTag.WriteString(";primary_key")

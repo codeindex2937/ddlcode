@@ -122,13 +122,13 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 	for i, table := range config.Tables {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
 		height := rowHeight*len(table.Columns) + titleHeight
-		position := positionMap[table.Name]
+		position := positionMap[table.Table]
 		entity := drawio.NewShape(tableId, float64(position.x), float64(position.y), float64(tableWidth), float64(height), config.EntityStyle)
 		entity.Value = getEntityBody(config, table)
 
 		f.Diagram.MxGraphModel.AddCells(entity)
 
-		tableIdMap[table.Name] = tableId
+		tableIdMap[table.Table] = tableId
 	}
 
 	linkStyle := map[string]string{}
@@ -147,8 +147,8 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 
 			link := drawio.NewLine(
 				parent.Id,
-				tableIdMap[table.Name],
-				tableIdMap[col.ForeignTable.Name],
+				tableIdMap[table.Table],
+				tableIdMap[col.ForeignTable.Table],
 				linkStyle)
 			target, source := link.NewEdgeLabel(config.EdgeLabelStyle)
 			target.Value = col.Name
@@ -175,7 +175,7 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 func getPositions(tables []*Table, h func(int) int, w int) map[string]position {
 	tableMap := map[string]*Table{}
 	for _, table := range tables {
-		tableMap[table.Name] = table
+		tableMap[table.Table] = table
 	}
 
 	layers := sortIntoLayers(tableMap)
@@ -242,7 +242,7 @@ func sortIntoLayers(tables map[string]*Table) map[string]int {
 			if c.ForeignTable == nil {
 				continue
 			}
-			g.AddEdge(t.Name, c.ForeignTable.Name)
+			g.AddEdge(t.Table, c.ForeignTable.Table)
 		}
 	}
 
@@ -280,7 +280,7 @@ func getEntityBody(config DrawioConfig, table *Table) string {
 		"flex-direction": "column",
 		"height":         "100%",
 	}, ":")
-	entity.Title.Body = table.Name
+	entity.Title.Body = table.Table
 	entity.Title.Style = join(config.HeaderStyle, ":") + "flex:0;"
 	entity.Table.Style = join(config.TableStyle, ":") + "flex:1;"
 	dataStyle := join(config.CellStyle, ":")
@@ -307,7 +307,7 @@ func getEntityBody(config DrawioConfig, table *Table) string {
 		row := html.TableRow{
 			Data: []html.TableData{
 				{Data: col.Name},
-				{Data: toSqlType(col.Type)},
+				{Data: toSqlType(col.DataType)},
 				{Data: notNull},
 				{Data: pk},
 				{Data: autoIncrement},
