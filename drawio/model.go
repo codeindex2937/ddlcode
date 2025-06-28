@@ -164,17 +164,25 @@ type Label struct {
 }
 
 type Geometry struct {
-	XMLName  xml.Name `xml:"mxGeometry"`
-	X        string   `xml:"x,attr,omitempty"`
-	Y        string   `xml:"y,attr,omitempty"`
-	Width    string   `xml:"width,attr,omitempty"`
-	Height   string   `xml:"height,attr,omitempty"`
-	Relative string   `xml:"relative,attr,omitempty"`
-	As       string   `xml:"as,attr"`
-	Point    *Point   `xml:"mxPoint"`
+	XMLName   xml.Name   `xml:"mxGeometry"`
+	X         string     `xml:"x,attr,omitempty"`
+	Y         string     `xml:"y,attr,omitempty"`
+	Width     string     `xml:"width,attr,omitempty"`
+	Height    string     `xml:"height,attr,omitempty"`
+	Relative  string     `xml:"relative,attr,omitempty"`
+	As        string     `xml:"as,attr"`
+	Point     *Point     `xml:"mxPoint"`
+	Rectangle *Rectangle `xml:"mxRectangle"`
 }
 
 type Point struct {
 	XMLName xml.Name `xml:"mxPoint"`
+	As      string   `xml:"as,attr"`
+}
+
+type Rectangle struct {
+	XMLName xml.Name `xml:"mxRectangle"`
+	Width   string   `xml:"width,attr,omitempty"`
+	Height  string   `xml:"height,attr,omitempty"`
 	As      string   `xml:"as,attr"`
 }

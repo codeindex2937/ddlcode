@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/codeindex2937/ddlcode/drawio"
@@ -23,22 +24,93 @@ var rowHeight = 18
 var titleHeight = 20
 
 type DrawioConfig struct {
-	ExportPath     string
-	CellId         string
-	EntityStyle    map[string]string
-	Width          int
-	Height         int
-	Tables         []*Table
-	HeaderStyle    map[string]string
-	TableStyle     map[string]string
-	LinkStyle      map[string]string
-	EdgeLabelStyle map[string]string
-	CellStyle      map[string]string
+	ExportPath             string
+	CellId                 string
+	Width                  int
+	Height                 int
+	Tables                 []*Table
+	EntityStyle            map[string]string
+	TableStyle             map[string]string
+	HeaderStyle            map[string]string
+	RowStyle               map[string]string
+	CellStyle              map[string]string
+	LinkStyle              map[string]string
+	EdgeLabelStyle         map[string]string
+	GetLinkTarget          func(table *Table, col *Column, tableId, columnId string) (targetId, verticalPosition string)
+	GetEntity              func(config DrawioConfig, table *Table, id string, x, y, width, height float64, style map[string]string) []*drawio.Shape
+	GetColumnIndexInEntity func(i int) int
 }
 
 type position struct {
 	x int
 	y int
+}
+
+var InnerTableConfig = DrawioConfig{
+	EntityStyle: map[string]string{
+		"verticalAlign":        "top",
+		"align":                "left",
+		"overflow":             "fill",
+		"html":                 "1",
+		"rounded":              "0",
+		"shadow":               "0",
+		"comic":                "0",
+		"labelBackgroundColor": "none",
+		"strokeWidth":          "1",
+		"fontFamily":           "Verdana",
+		"fontSize":             "12",
+	},
+	TableStyle: map[string]string{
+		"width":           "100%",
+		"font-size":       "1em",
+		"background":      "DimGray",
+		"border-collapse": "collapse",
+	},
+	HeaderStyle: map[string]string{
+		"box-sizing": "border-box",
+		"width":      "100%",
+		"background": "#e4e4e4",
+		"padding":    "2px",
+		"color":      "black",
+	},
+	CellStyle: map[string]string{
+		"border": "1px solid",
+	},
+	LinkStyle: map[string]string{
+		"edgeStyle":      "entityRelationEdgeStyle",
+		"rounded":        "0",
+		"orthogonalLoop": "1",
+		"jettySize":      "auto",
+		"html":           "1",
+		"exitX":          "1",
+		"exitY":          "0.5",
+		"exitDx":         "0",
+		"exitDy":         "0",
+		"entryX":         "0",
+		"entryY":         "0.5",
+		"entryDx":        "0",
+		"entryDy":        "0",
+	},
+	EdgeLabelStyle: map[string]string{
+		"edgeLabel":     "",
+		"html":          "1",
+		"align":         "center",
+		"verticalAlign": "middle",
+		"resizable":     "0",
+		"points":        "[]",
+	},
+	GetLinkTarget: func(table *Table, col *Column, tableId, columnId string) (targetId, verticalPosition string) {
+		verticalPosition = fmt.Sprintf("%v", getRelativeVerticalColumnPosition(table, col.Name))
+		return tableId, verticalPosition
+	},
+	GetEntity: func(config DrawioConfig, table *Table, id string, x, y, width, height float64, style map[string]string) []*drawio.Shape {
+		entity := drawio.NewShape(id, x, y, width, height, style)
+		entity.Value = getInnerTable(config, table)
+		return []*drawio.Shape{entity}
+	},
+	GetColumnIndexInEntity: func(i int) int {
+		return 0
+	},
 }
 
 func GetDefaultDrawioConfig() DrawioConfig {
@@ -53,17 +125,28 @@ func GetDefaultDrawioConfig() DrawioConfig {
 	config := DrawioConfig{
 		CellId: hex.EncodeToString(buf),
 		EntityStyle: map[string]string{
-			"verticalAlign":        "top",
-			"align":                "left",
-			"overflow":             "fill",
-			"html":                 "1",
-			"rounded":              "0",
-			"shadow":               "0",
-			"comic":                "0",
-			"labelBackgroundColor": "none",
-			"strokeWidth":          "1",
-			"fontFamily":           "Verdana",
-			"fontSize":             "12",
+			"shape":       "table",
+			"startSize":   fmt.Sprintf("%v", titleHeight),
+			"container":   "1",
+			"collapsible": "1",
+			"childLayout": "tableLayout",
+			"fixedRows":   "1",
+			"rowLines":    "0",
+			"fontStyle":   "1",
+			"align":       "center",
+			"resizeLast":  "1",
+		},
+		TableStyle: map[string]string{
+			"shape":       "table",
+			"startSize":   "30",
+			"container":   "1",
+			"collapsible": "1",
+			"childLayout": "tableLayout",
+			"fixedRows":   "1",
+			"rowLines":    "0",
+			"fontStyle":   "1",
+			"align":       "center",
+			"resizeLast":  "1",
 		},
 		HeaderStyle: map[string]string{
 			"box-sizing": "border-box",
@@ -72,11 +155,35 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"padding":    "2px",
 			"color":      "black",
 		},
-		TableStyle: map[string]string{
-			"width":           "100%",
-			"font-size":       "1em",
-			"background":      "DimGray",
-			"border-collapse": "collapse",
+		RowStyle: map[string]string{
+			"shape":          "tableRow",
+			"horizontal":     "0",
+			"startSize":      "0",
+			"swimlaneHead":   "0",
+			"swimlaneBody":   "0",
+			"fillColor":      "none",
+			"collapsible":    "0",
+			"dropTarget":     "0",
+			"points":         "[[0,0.5],[1,0.5]]",
+			"portConstraint": "eastwest",
+			"strokeColor":    "inherit",
+			"top":            "0",
+			"left":           "0",
+			"right":          "0",
+			"bottom":         "0",
+		},
+		CellStyle: map[string]string{
+			"shape":       "partialRectangle",
+			"overflow":    "hidden",
+			"connectable": "0",
+			"fillColor":   "none",
+			"align":       "left",
+			"strokeColor": "inherit",
+			"top":         "0",
+			"left":        "0",
+			"bottom":      "0",
+			"right":       "0",
+			"spacingLeft": "6",
 		},
 		LinkStyle: map[string]string{
 			"edgeStyle":      "entityRelationEdgeStyle",
@@ -101,8 +208,36 @@ func GetDefaultDrawioConfig() DrawioConfig {
 			"resizable":     "0",
 			"points":        "[]",
 		},
-		CellStyle: map[string]string{
-			"border": "1px solid",
+		GetLinkTarget: func(table *Table, col *Column, tableId, columnId string) (targetId, verticalPosition string) {
+			return columnId, "0.5"
+		},
+		GetEntity: func(config DrawioConfig, table *Table, id string, x, y, width, height float64, style map[string]string) []*drawio.Shape {
+			entity := &drawio.Shape{
+				MxCellBase: drawio.MxCellBase{
+					Id:     id,
+					Vertex: "1",
+					Style:  join(style, "="),
+					Value:  table.Table,
+					Geometry: &drawio.Geometry{
+						X:      strconv.FormatFloat(x, 'f', -1, 64),
+						Y:      strconv.FormatFloat(y, 'f', -1, 64),
+						Width:  strconv.FormatFloat(width, 'f', -1, 64),
+						Height: strconv.FormatFloat(height, 'f', -1, 64),
+						As:     "geometry",
+						Rectangle: &drawio.Rectangle{
+							Width:  strconv.FormatFloat(width, 'f', -1, 64),
+							Height: strconv.FormatFloat(height, 'f', -1, 64),
+							As:     "alternateBounds",
+						},
+					},
+				},
+			}
+
+			columns := getColumns(id, config, table, width)
+			return append([]*drawio.Shape{entity}, columns...)
+		},
+		GetColumnIndexInEntity: func(i int) int {
+			return 2*i + 1
 		},
 	}
 
@@ -112,6 +247,7 @@ func GetDefaultDrawioConfig() DrawioConfig {
 func GenerateDrawio(config DrawioConfig) (File, error) {
 	var err error
 	tableIdMap := map[string]string{}
+	columnIdMap := map[string]map[string]string{}
 
 	f := drawio.NewFile(config.Width, config.Height)
 	parent := f.Diagram.MxGraphModel.Cells[1].(*drawio.Shape)
@@ -123,12 +259,21 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 		tableId := fmt.Sprintf("%v-%v", config.CellId, i)
 		height := rowHeight*len(table.Columns) + titleHeight
 		position := positionMap[table.Table]
-		entity := drawio.NewShape(tableId, float64(position.x), float64(position.y), float64(tableWidth), float64(height), config.EntityStyle)
-		entity.Value = getEntityBody(config, table)
+		entities := config.GetEntity(
+			config, table, tableId,
+			float64(position.x), float64(position.y),
+			float64(tableWidth), float64(height),
+			config.EntityStyle)
 
-		f.Diagram.MxGraphModel.AddCells(entity)
+		for _, entity := range entities {
+			f.Diagram.MxGraphModel.AddCells(entity)
+		}
 
 		tableIdMap[table.Table] = tableId
+		columnIdMap[table.Table] = map[string]string{}
+		for i, col := range table.Columns {
+			columnIdMap[table.Table][col.Name] = entities[config.GetColumnIndexInEntity(i)].Id
+		}
 	}
 
 	linkStyle := map[string]string{}
@@ -140,16 +285,19 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 				continue
 			}
 
-			linkStyle["entryX"] = "0"
-			linkStyle["entryY"] = fmt.Sprintf("%v", getRelativeVerticalColumnPosition(col.ForeignTable, col.ForeignColumn.Name))
-			linkStyle["exitX"] = "1"
-			linkStyle["exitY"] = fmt.Sprintf("%v", getRelativeVerticalColumnPosition(table, col.Name))
+			sourceId, sourceVerticalPos := config.GetLinkTarget(
+				table, col,
+				tableIdMap[table.Table], columnIdMap[table.Table][col.Name])
+			targetId, targetVerticalPos := config.GetLinkTarget(
+				col.ForeignTable, col.ForeignColumn,
+				tableIdMap[col.ForeignTable.Table], columnIdMap[col.ForeignTable.Table][col.ForeignColumn.Name])
 
-			link := drawio.NewLine(
-				parent.Id,
-				tableIdMap[table.Table],
-				tableIdMap[col.ForeignTable.Table],
-				linkStyle)
+			linkStyle["entryX"] = "0"
+			linkStyle["entryY"] = targetVerticalPos
+			linkStyle["exitX"] = "1"
+			linkStyle["exitY"] = sourceVerticalPos
+
+			link := drawio.NewLine(parent.Id, sourceId, targetId, linkStyle)
 			target, source := link.NewEdgeLabel(config.EdgeLabelStyle)
 			target.Value = col.Name
 			source.Value = col.ForeignColumn.Name
@@ -273,16 +421,94 @@ func reverseSlice[V any](src []V) []V {
 	return t
 }
 
-func getEntityBody(config DrawioConfig, table *Table) string {
-	entity := html.Entity{}
-	entity.Style = join(map[string]string{
-		"display":        "flex",
-		"flex-direction": "column",
-		"height":         "100%",
-	}, ":")
-	entity.Title.Body = table.Table
-	entity.Title.Style = join(config.HeaderStyle, ":") + "flex:0;"
-	entity.Table.Style = join(config.TableStyle, ":") + "flex:1;"
+func getColumns(entityId string, config DrawioConfig, table *Table, width float64) []*drawio.Shape {
+	columns := []*drawio.Shape{}
+	pkStyle := map[string]string{}
+	maps.Copy(pkStyle, config.RowStyle)
+	pkStyle["bottom"] = "1"
+	pkTextStyle := map[string]string{}
+	maps.Copy(pkTextStyle, config.CellStyle)
+	pkTextStyle["fontStyle"] = "1"
+
+	for i, col := range table.Columns {
+		notNull := "-"
+		pk := "-"
+		autoIncrement := "-"
+		unique := "-"
+		var rowStyle map[string]string
+		var textStyle map[string]string
+
+		if col.Attribute.IsPrimaryKey() {
+			pk = "PK"
+			rowStyle = pkStyle
+			textStyle = pkTextStyle
+		} else {
+			rowStyle = config.RowStyle
+			textStyle = config.CellStyle
+		}
+		if col.Attribute.IsNotNull() {
+			notNull = "NN"
+		}
+		if col.Attribute.IsAutoIncrement() {
+			autoIncrement = "AI"
+		}
+		if col.Attribute.IsUnique() {
+			unique = "U"
+		}
+
+		colId := fmt.Sprintf("%v-col-%v", entityId, i)
+		columns = append(columns, &drawio.Shape{
+			MxCellBase: drawio.MxCellBase{
+				Id:     colId,
+				Vertex: "1",
+				Value:  "",
+				Style:  join(rowStyle, "="),
+				Parent: entityId,
+				Geometry: &drawio.Geometry{
+					Y:      strconv.FormatFloat(float64((i+1)*(rowHeight)), 'f', -1, 64),
+					Width:  strconv.FormatFloat(width, 'f', -1, 64),
+					Height: strconv.FormatFloat(float64(rowHeight), 'f', -1, 64),
+					As:     "geometry",
+				},
+			},
+		}, &drawio.Shape{
+			MxCellBase: drawio.MxCellBase{
+				Id:     fmt.Sprintf("%v-cell-%v", entityId, i),
+				Vertex: "1",
+				Value:  fmt.Sprintf("%v %v [%v][%v][%v][%v][%v]", col.Name, toSqlType(col.DataType), notNull, pk, autoIncrement, unique, getDefaultValueFromAttribute(col.Attribute)),
+				Style:  join(textStyle, "="),
+				Parent: colId,
+				Geometry: &drawio.Geometry{
+					Width:  strconv.FormatFloat(width, 'f', -1, 64),
+					Height: strconv.FormatFloat(float64(rowHeight), 'f', -1, 64),
+					As:     "geometry",
+					Rectangle: &drawio.Rectangle{
+						Width:  strconv.FormatFloat(width, 'f', -1, 64),
+						Height: strconv.FormatFloat(float64(rowHeight), 'f', -1, 64),
+						As:     "alternateBounds",
+					},
+				},
+			},
+		})
+	}
+	return columns
+}
+
+func getInnerTable(config DrawioConfig, table *Table) string {
+	entity := html.Entity{
+		Style: join(map[string]string{
+			"display":        "flex",
+			"flex-direction": "column",
+			"height":         "100%",
+		}, ":"),
+		Title: html.Title{
+			Body:  table.Table,
+			Style: join(config.HeaderStyle, ":") + "flex:0;",
+		},
+		Table: html.Table{
+			Style: join(config.TableStyle, ":") + "flex:1;",
+		},
+	}
 	dataStyle := join(config.CellStyle, ":")
 
 	for _, col := range table.Columns {
