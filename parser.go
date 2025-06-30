@@ -110,6 +110,12 @@ func assignRefColumns(table, refTable *Table, spec *ast.OutOfLineConstraint) []F
 		c := table.getColumn(k.Value)
 		c.ForeignTable = refTable
 		c.ForeignColumn = refTable.getColumn(columnName)
+
+		refColumn := refTable.getColumn(columnName)
+		if refColumn == nil {
+			log.Fatalf("unknown ref. column: %v.%v => %v.%v", table.Table, k.Value, refTable.Table, columnName)
+		}
+
 		fkInfos = append(fkInfos, FkInfo{
 			Schema:          table.Schema,
 			Table:           table.Table,

@@ -337,8 +337,12 @@ func getPositions(tables []*Table, h func(int) int, w int) map[string]position {
 	}
 	slices.Sort(isolatedNoes)
 
+	maxLayer := 0
+	if len(layers) > 0 {
+		maxLayer = slices.Max(values(layers))
+	}
+
 	positionMap := map[string]position{}
-	maxLayer := slices.Max(values(layers))
 	avgIsolatedHeight := isolatedTotalHeight / (maxLayer + 1)
 	currentHeight := 0
 	maxIsolatedHeight := 0
