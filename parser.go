@@ -87,9 +87,7 @@ func Parse(sql string) Database {
 
 	for _, t := range tableMap {
 		db.Tables = append(db.Tables, t)
-		for _, c := range t.Columns {
-			db.Columns = append(db.Columns, c)
-		}
+		db.Columns = append(db.Columns, t.Columns...)
 	}
 	return db
 }
