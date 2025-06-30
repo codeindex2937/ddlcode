@@ -22,11 +22,13 @@ type JavaConfig struct {
 	Template           *template.Template
 	PrimaryKeyTemplate *template.Template
 	DaoTemplate        *template.Template
+	RepositoryTemplate *template.Template
 }
 
 var JavaFuncMap = template.FuncMap{
 	"ToCamel":               strcase.ToCamel,
 	"ToLowerCamel":          strcase.ToLowerCamel,
+	"ToConstant":            func(s string) string { return strings.ToUpper(strcase.ToSnake(s)) },
 	"ToTypeName":            toJavaType,
 	"IsCompositePrimaryKey": isCompositePrimaryKey,
 	"GetAllFields":          getAllFields,
@@ -35,6 +37,12 @@ var JavaFuncMap = template.FuncMap{
 	"ComparePkFields":       compareJavaPkFields,
 	"GetImportPaths":        getJavaImportPaths,
 	"GetPkImportPaths":      getJavaPkImportPaths,
+	"GetPkCriteria":         getPkCriteria,
+	"GetNonPkAssignment":    getNonPkAssignment,
+	"GetAllColumn":          getAllColumn,
+	"GetAllPlaceholder":     getAllPlaceholder,
+	"GetPkTypeWithMember":   getPkTypeWithMember,
+	"GetAllTypeWithMember":  getAllTypeWithMember,
 	"GetPkType": func(table *Table) string {
 		if isCompositePrimaryKey(table) {
 			return strcase.ToCamel(table.Table) + "PK"
@@ -50,31 +58,31 @@ var JavaFuncMap = template.FuncMap{
 
 var JavaEntityTemplate = `package {{.Package}}.jpa;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.util.Objects;
 {{ GetImportPaths .Table }}
 
 @Entity
-@Table(name = "{{.Table.Name}}"{{if gt (len .Schema) 0}}, schema = "{{.Schema}}"{{end}})
+@Table(name = "{{.Table.Table}}"{{if gt (len .Schema) 0}}, schema = "{{.Schema}}"{{end}})
 {{- if IsCompositePrimaryKey .Table}}
-@IdClass({{ToCamel .Table.Name}}PK.class)
+@IdClass({{ToCamel .Table.Table}}PK.class)
 {{- end}}
-public class {{ToCamel .Table.Name}}Entity {
+public class {{ToCamel .Table.Table}}Entity {
 {{ $table := .Table}}
 {{- range .Table.Columns}}
     {{- if (.Attribute.IsPrimaryKey) }}
     @Id
     {{- end}}
     @Column(name = "{{.Name}}")
-    private {{ToTypeName .Type }} {{ToLowerCamel .Name}};
+    private {{ToTypeName .DataType }} {{ToLowerCamel .Name}};
 {{ end }}
 
 {{- range .Table.Columns}}
-    public {{ToTypeName .Type }} get{{ToCamel .Name}}() {
+    public {{ToTypeName .DataType }} get{{ToCamel .Name}}() {
         return this.{{ToLowerCamel .Name}};
     }
 
-    public void set{{ToCamel .Name}}({{ToTypeName .Type }} {{ToLowerCamel .Name}}) {
+    public void set{{ToCamel .Name}}({{ToTypeName .DataType }} {{ToLowerCamel .Name}}) {
         this.{{ToLowerCamel .Name}} = {{ToLowerCamel .Name}};
     }
 {{end}}
@@ -87,7 +95,7 @@ public class {{ToCamel .Table.Name}}Entity {
             return false;
         }
 
-        {{ToCamel .Table.Name}}Entity that = ({{ToCamel .Table.Name}}Entity)o;
+        {{ToCamel .Table.Table}}Entity that = ({{ToCamel .Table.Table}}Entity)o;
         return {{CompareFields .Table "that"}};
     }
 
@@ -100,26 +108,26 @@ public class {{ToCamel .Table.Name}}Entity {
 
 var JavaPrimaryKeyTemplate = `package {{.Package}}.jpa;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import java.util.Objects;
 import java.io.Serializable;
 {{ GetPkImportPaths .Table }}
 
-public class {{ToCamel .Table.Name}}PK implements Serializable {
+public class {{ToCamel .Table.Table}}PK implements Serializable {
 {{range .Table.Columns}}
 {{- if .Attribute.IsPrimaryKey}}
     @Id
     @Column(name = "{{.Name}}")
-    private {{ToTypeName .Type }} {{ToLowerCamel .Name}};
+    private {{ToTypeName .DataType }} {{ToLowerCamel .Name}};
 {{end -}}
 {{end}}
 {{- range .Table.Columns}}
 {{- if .Attribute.IsPrimaryKey}}
-    public {{ToTypeName .Type }} get{{ToCamel .Name}}() {
+    public {{ToTypeName .DataType }} get{{ToCamel .Name}}() {
         return this.{{ToLowerCamel .Name}};
     }
 
-    public void set{{ToCamel .Name}}({{ToTypeName .Type }} {{ToLowerCamel .Name}}) {
+    public void set{{ToCamel .Name}}({{ToTypeName .DataType }} {{ToLowerCamel .Name}}) {
         this.{{ToLowerCamel .Name}} = {{ToLowerCamel .Name}};
     }
 {{end -}}
@@ -133,7 +141,7 @@ public class {{ToCamel .Table.Name}}PK implements Serializable {
       return false;
     }
 
-    {{ToCamel .Table.Name}}Entity that = ({{ToCamel .Table.Name}}Entity)o;
+    {{ToCamel .Table.Table}}Entity that = ({{ToCamel .Table.Table}}Entity)o;
     return {{CompareFields .Table "that"}};
   }
 
@@ -145,15 +153,74 @@ public class {{ToCamel .Table.Name}}PK implements Serializable {
 
 var JavaDaoTemplate = `package {{.Package}}.dao;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 import org.springframework.data.repository.CrudRepository;
-import {{.Package}}.jpa.{{ToCamel .Table.Name}}Entity ;
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}Entity;
 {{- if IsCompositePrimaryKey .Table }}
-import {{.Package}}.jpa.{{ToCamel .Table.Name}}PK;
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
 {{- end}}
 {{- $pkType := GetPkType .Table }}
 
-public interface {{ToCamel .Table.Name}}Dao extends CrudRepository<{{ToCamel .Table.Name}}Entity, {{$pkType}}> {
+public interface {{ToCamel .Table.Table}}Dao extends CrudRepository<{{ToCamel .Table.Table}}Entity, {{$pkType}}> {
+}
+`
+
+var JavaRepositoryTemplate = `package {{.Package}}.dao;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.BeanPropertyRowMapper;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+
+import jakarta.persistence.*;
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}Entity;
+{{- if IsCompositePrimaryKey .Table }}
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
+{{- end}}
+{{- $pkType := GetPkType .Table }}
+
+@Component
+public class {{ToCamel .Table.Table}}SqlExecutor {
+  private static final String SQL_QUERY_{{ToConstant .Table.Table}} = "select {{GetAllColumn .Table}} from {{.Table.Table}} where {{GetPkCriteria .Table}}";
+  private static final String SQL_DELETE_{{ToConstant .Table.Table}} = "delete from {{.Table.Table}} where {{GetPkCriteria .Table}}";
+  private static final String SQL_INSERT_{{ToConstant .Table.Table}} = "insert into {{.Table.Table}}({{GetAllColumn .Table}}) VALUES ({{GetAllPlaceholder .Table}})";
+  private static final String SQL_UPDATE_{{ToConstant .Table.Table}} = "update {{.Table.Table}} set {{GetNonPkAssignment .Table}} where {{GetPkCriteria .Table}}";
+	
+	@Autowired(name="primary")
+	private NamedParameterJdbcTemplate datasource;
+
+	public {{ToCamel .Table.Table}} get{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
+		MapSqlParameterSource params = new MapSqlParameterSource();
+		{{- range .Table.Columns}}
+		{{- if .Attribute.IsPrimaryKey}}
+    params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
+		{{- end -}}
+		{{end}}
+		return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, new BeanPropertyRowMapper<>({{ToCamel .Table.Table}}Entity.class));
+	}
+	public int insert{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+		MapSqlParameterSource params = new MapSqlParameterSource();
+		{{- range .Table.Columns}}
+    params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
+    {{- end}}
+    return datasource.update(SQL_INSERT_{{ToConstant .Table.Table}}, params);
+	}
+	public int update{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+		MapSqlParameterSource params = new MapSqlParameterSource();
+		{{- range .Table.Columns}}
+    params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
+    {{- end}}
+    return datasource.update(SQL_UPDATE_{{ToConstant .Table.Table}}, params);
+	}
+	public int delete{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+		MapSqlParameterSource params = new MapSqlParameterSource();
+		{{- range .Table.Columns}}
+		{{- if .Attribute.IsPrimaryKey}}
+    params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
+		{{- end -}}
+		{{end}}
+    return datasource.update(SQL_DELETE_{{ToConstant .Table.Table}}, params);
+	}
 }
 `
 
@@ -174,6 +241,11 @@ func GetDefaultJavaConfig() JavaConfig {
 	}
 
 	config.DaoTemplate, err = template.New("javaDao").Funcs(JavaFuncMap).Parse(JavaDaoTemplate)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	config.RepositoryTemplate, err = template.New("repository").Funcs(JavaFuncMap).Parse(JavaRepositoryTemplate)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -200,6 +272,14 @@ func GenerateJava(config JavaConfig) ([]File, error) {
 
 	if config.DaoTemplate != nil {
 		entityFile, err := generateFile(config.DaoTemplate, filepath.Join(config.ExportDir, "dao", entityName+"Dao.java"), config)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, entityFile)
+	}
+
+	if config.RepositoryTemplate != nil {
+		entityFile, err := generateFile(config.RepositoryTemplate, filepath.Join(config.ExportDir, "repository", entityName+"Dao.java"), config)
 		if err != nil {
 			return nil, err
 		}
@@ -320,4 +400,93 @@ func toJavaType(datatype element.Datatype) (name string) {
 		name = "UnSupport"
 	}
 	return
+}
+
+func getAllFields(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, entityName)
+	}
+	return strings.Join(columnNames, ",")
+}
+
+func getPkFields(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if !c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, entityName)
+	}
+	return strings.Join(columnNames, ",")
+}
+
+func getPkCriteria(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if !c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, fmt.Sprintf("%v=:%v", c.Name, entityName))
+	}
+	return strings.Join(columnNames, " AND ")
+}
+
+func getNonPkAssignment(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, fmt.Sprintf("%v=:%v", c.Name, entityName))
+	}
+	return strings.Join(columnNames, ",")
+}
+
+func getAllColumn(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if !c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		columnNames = append(columnNames, c.Name)
+	}
+	return strings.Join(columnNames, ",")
+}
+
+func getAllPlaceholder(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if !c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, fmt.Sprintf(":%v", entityName))
+	}
+	return strings.Join(columnNames, ",")
+}
+
+func getAllTypeWithMember(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, fmt.Sprintf("%v %v", toJavaType(c.DataType), entityName))
+	}
+	return strings.Join(columnNames, ", ")
+}
+
+func getPkTypeWithMember(table *Table) string {
+	columnNames := []string{}
+	for _, c := range table.Columns {
+		if !c.Attribute.IsPrimaryKey() {
+			continue
+		}
+		entityName := strcase.ToLowerCamel(c.Name)
+		columnNames = append(columnNames, fmt.Sprintf("%v %v", toJavaType(c.DataType), entityName))
+	}
+	return strings.Join(columnNames, ", ")
 }

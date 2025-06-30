@@ -15,7 +15,6 @@ import (
 	"github.com/codeindex2937/ddlcode/toposort"
 	"github.com/codeindex2937/oracle-sql-parser/ast"
 	"github.com/codeindex2937/oracle-sql-parser/ast/element"
-	"github.com/iancoleman/strcase"
 	"golang.org/x/exp/maps"
 	"golang.org/x/exp/slices"
 )
@@ -590,27 +589,6 @@ func isCompositePrimaryKey(table *Table) bool {
 		}
 	}
 	return pKeyCount > 1
-}
-
-func getAllFields(table *Table) string {
-	columnNames := []string{}
-	for _, c := range table.Columns {
-		entityName := strcase.ToLowerCamel(c.Name)
-		columnNames = append(columnNames, entityName)
-	}
-	return strings.Join(columnNames, ",")
-}
-
-func getPkFields(table *Table) string {
-	columnNames := []string{}
-	for _, c := range table.Columns {
-		if !c.Attribute.IsPrimaryKey() {
-			continue
-		}
-		entityName := strcase.ToLowerCamel(c.Name)
-		columnNames = append(columnNames, entityName)
-	}
-	return strings.Join(columnNames, ",")
 }
 
 func getDefaultValueFromAttribute(attr AttributeMap) string {
