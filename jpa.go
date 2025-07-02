@@ -185,42 +185,43 @@ public class {{ToCamel .Table.Table}}SqlExecutor {
   private static final String SQL_DELETE_{{ToConstant .Table.Table}} = "delete from {{.Table.Table}} where {{GetPkCriteria .Table}}";
   private static final String SQL_INSERT_{{ToConstant .Table.Table}} = "insert into {{.Table.Table}}({{GetAllColumn .Table}}) VALUES ({{GetAllPlaceholder .Table}})";
   private static final String SQL_UPDATE_{{ToConstant .Table.Table}} = "update {{.Table.Table}} set {{GetNonPkAssignment .Table}} where {{GetPkCriteria .Table}}";
-	
-	@Autowired(name="primary")
-	private NamedParameterJdbcTemplate datasource;
 
-	public {{ToCamel .Table.Table}} get{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
-		MapSqlParameterSource params = new MapSqlParameterSource();
-		{{- range .Table.Columns}}
-		{{- if .Attribute.IsPrimaryKey}}
+  @Autowired
+  @Qualifier("primary")
+  private NamedParameterJdbcTemplate datasource;
+
+  public {{ToCamel .Table.Table}}Entity get{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    {{- range .Table.Columns}}
+    {{- if .Attribute.IsPrimaryKey}}
     params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
-		{{- end -}}
-		{{end}}
-		return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, new BeanPropertyRowMapper<>({{ToCamel .Table.Table}}Entity.class));
-	}
-	public int insert{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
-		MapSqlParameterSource params = new MapSqlParameterSource();
-		{{- range .Table.Columns}}
+    {{- end -}}
+    {{end}}
+    return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, BeanPropertyRowMapper.newInstance({{ToCamel .Table.Table}}Entity.class));
+  }
+  public int insert{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    {{- range .Table.Columns}}
     params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
     {{- end}}
     return datasource.update(SQL_INSERT_{{ToConstant .Table.Table}}, params);
-	}
-	public int update{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
-		MapSqlParameterSource params = new MapSqlParameterSource();
-		{{- range .Table.Columns}}
+  }
+  public int update{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    {{- range .Table.Columns}}
     params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
     {{- end}}
     return datasource.update(SQL_UPDATE_{{ToConstant .Table.Table}}, params);
-	}
-	public int delete{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
-		MapSqlParameterSource params = new MapSqlParameterSource();
-		{{- range .Table.Columns}}
-		{{- if .Attribute.IsPrimaryKey}}
+  }
+  public int delete{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    {{- range .Table.Columns}}
+    {{- if .Attribute.IsPrimaryKey}}
     params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
-		{{- end -}}
-		{{end}}
+    {{- end -}}
+    {{end}}
     return datasource.update(SQL_DELETE_{{ToConstant .Table.Table}}, params);
-	}
+  }
 }
 `
 
@@ -450,9 +451,6 @@ func getNonPkAssignment(table *Table) string {
 func getAllColumn(table *Table) string {
 	columnNames := []string{}
 	for _, c := range table.Columns {
-		if !c.Attribute.IsPrimaryKey() {
-			continue
-		}
 		columnNames = append(columnNames, c.Name)
 	}
 	return strings.Join(columnNames, ",")
@@ -461,9 +459,6 @@ func getAllColumn(table *Table) string {
 func getAllPlaceholder(table *Table) string {
 	columnNames := []string{}
 	for _, c := range table.Columns {
-		if !c.Attribute.IsPrimaryKey() {
-			continue
-		}
 		entityName := strcase.ToLowerCamel(c.Name)
 		columnNames = append(columnNames, fmt.Sprintf(":%v", entityName))
 	}
