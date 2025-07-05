@@ -302,7 +302,7 @@ public class {{ToCamel .Table.Table}}SqlExecutorTest {
   }
 
 	@Test
-  public testUpdate{{ToCamel .Table.Table}}() {
+  public void testUpdate{{ToCamel .Table.Table}}() {
     {{ToLowerCamel .Table.Table}}SqlExecutor.update{{ToCamel .Table.Table}}();
   }
 
