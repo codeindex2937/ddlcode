@@ -141,19 +141,18 @@ public class {{ToCamel .Table.Table}}PK implements Serializable {
       return false;
     }
 
-    {{ToCamel .Table.Table}}Entity that = ({{ToCamel .Table.Table}}Entity)o;
-    return {{CompareFields .Table "that"}};
+    {{ToCamel .Table.Table}}PK that = ({{ToCamel .Table.Table}}PK)o;
+    return {{ComparePkFields .Table "that"}};
   }
 
   public int hashCode() {
-    return Objects.hash({{GetAllFields .Table}});
+    return Objects.hash({{GetPkFields .Table}});
   }
 }
 `
 
 var JavaDaoTemplate = `package {{.Package}}.dao;
 
-import jakarta.persistence.*;
 import org.springframework.data.repository.CrudRepository;
 import {{.Package}}.jpa.{{ToCamel .Table.Table}}Entity;
 {{- if IsCompositePrimaryKey .Table }}
@@ -161,18 +160,27 @@ import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
 {{- end}}
 {{- $pkType := GetPkType .Table }}
 
+{{- if IsCompositePrimaryKey .Table }}
+public interface {{ToCamel .Table.Table}}Dao extends CrudRepository<{{ToCamel .Table.Table}}Entity, {{ToCamel .Table.Table}}PK> {
+{{- else}}
 public interface {{ToCamel .Table.Table}}Dao extends CrudRepository<{{ToCamel .Table.Table}}Entity, {{$pkType}}> {
+{{- end}}
 }
 `
 
-var JavaRepositoryTemplate = `package {{.Package}}.dao;
+var JavaRepositoryTemplate = `package {{.Package}}.repository;
+
+import java.sql.ResultSet;
+import java.util.List;
+{{ GetImportPaths .Table }}
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Component;
 
-import jakarta.persistence.*;
 import {{.Package}}.jpa.{{ToCamel .Table.Table}}Entity;
 {{- if IsCompositePrimaryKey .Table }}
 import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
@@ -190,6 +198,26 @@ public class {{ToCamel .Table.Table}}SqlExecutor {
   @Qualifier("primary")
   private NamedParameterJdbcTemplate datasource;
 
+  public List<{{ToCamel .Table.Table}}Entity> list{{ToCamel .Table.Table}}() {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, BeanPropertyRowMapper.newInstance({{ToCamel .Table.Table}}Entity.class));
+  }
+	{{- if IsCompositePrimaryKey .Table }}
+  public {{ToCamel .Table.Table}}Entity get{{ToCamel .Table.Table}}({{ToCamel .Table.Table}}PK pk) {
+    MapSqlParameterSource params = new MapSqlParameterSource();
+    {{- range .Table.Columns}}
+    {{- if .Attribute.IsPrimaryKey}}
+    params.addValue("{{ToLowerCamel .Name}}", pk.get{{ToCamel .Name}}());
+    {{- end -}}
+    {{end}}
+    return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, (ResultSet rs) -> {
+			if (!rs.next()) {
+				return null;
+			}
+		  return BeanPropertyRowMapper.newInstance({{ToCamel .Table.Table}}Entity.class).mapRow(rs, 1);
+		});
+  }
+	{{- else}}
   public {{ToCamel .Table.Table}}Entity get{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
     MapSqlParameterSource params = new MapSqlParameterSource();
     {{- range .Table.Columns}}
@@ -197,8 +225,14 @@ public class {{ToCamel .Table.Table}}SqlExecutor {
     params.addValue("{{ToLowerCamel .Name}}", {{ToLowerCamel .Name}});
     {{- end -}}
     {{end}}
-    return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, BeanPropertyRowMapper.newInstance({{ToCamel .Table.Table}}Entity.class));
+    return datasource.query(SQL_QUERY_{{ToConstant .Table.Table}}, params, (ResultSet rs) -> {
+			if (!rs.next()) {
+				return null;
+			}
+		  return BeanPropertyRowMapper.newInstance({{ToCamel .Table.Table}}Entity.class).mapRow(rs, 1);
+		});
   }
+	{{- end}}
   public int insert{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
     MapSqlParameterSource params = new MapSqlParameterSource();
     {{- range .Table.Columns}}
@@ -280,7 +314,7 @@ func GenerateJava(config JavaConfig) ([]File, error) {
 	}
 
 	if config.RepositoryTemplate != nil {
-		entityFile, err := generateFile(config.RepositoryTemplate, filepath.Join(config.ExportDir, "repository", entityName+"Dao.java"), config)
+		entityFile, err := generateFile(config.RepositoryTemplate, filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutor.java"), config)
 		if err != nil {
 			return nil, err
 		}
@@ -350,9 +384,9 @@ func getImportPaths(cs []*Column) []string {
 		case "RowId":
 			importPaths["import java.sql.RowId;"] = struct{}{}
 		case "Blob":
-			importPaths["import java.sql.Clob;"] = struct{}{}
-		case "Clob":
 			importPaths["import java.sql.Blob;"] = struct{}{}
+		case "Clob":
+			importPaths["import java.sql.Clob;"] = struct{}{}
 		case "Timestamp":
 			importPaths["import java.sql.Timestamp;"] = struct{}{}
 		case "Date":
