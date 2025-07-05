@@ -15,14 +15,15 @@ import (
 )
 
 type JavaConfig struct {
-	ExportDir          string
-	Package            string
-	Schema             string
-	Table              *Table
-	Template           *template.Template
-	PrimaryKeyTemplate *template.Template
-	DaoTemplate        *template.Template
-	RepositoryTemplate *template.Template
+	ExportDir              string
+	Package                string
+	Schema                 string
+	Table                  *Table
+	Template               *template.Template
+	PrimaryKeyTemplate     *template.Template
+	DaoTemplate            *template.Template
+	RepositoryTemplate     *template.Template
+	RepositoryTestTemplate *template.Template
 }
 
 var JavaFuncMap = template.FuncMap{
@@ -259,6 +260,59 @@ public class {{ToCamel .Table.Table}}SqlExecutor {
 }
 `
 
+var JavaRepositoryTestTemplate = `package {{.Package}}.repository;
+
+import java.sql.ResultSet;
+import java.util.List;
+{{ GetImportPaths .Table }}
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}Entity;
+{{- if IsCompositePrimaryKey .Table }}
+import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
+{{- end}}
+{{- $pkType := GetPkType .Table }}
+
+@SpringBootTest
+public class {{ToCamel .Table.Table}}SqlExecutorTest {
+  @Autowired {{ToCamel .Table.Table}}SqlExecutor {{ToLowerCamel .Table.Table}}SqlExecutor;
+
+	@Test
+  public void testList{{ToCamel .Table.Table}}() {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.list{{ToCamel .Table.Table}}();
+  }
+
+	@Test
+	{{- if IsCompositePrimaryKey .Table }}
+  public void testGet{{ToCamel .Table.Table}}() {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.get{{ToCamel .Table.Table}}();
+  }
+	{{- else}}
+  public void testGet{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.get{{ToCamel .Table.Table}}();
+  }
+	{{- end}}
+
+	@Test
+  public void testInsert{{ToCamel .Table.Table}}() {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.insert{{ToCamel .Table.Table}}();
+  }
+
+	@Test
+  public testUpdate{{ToCamel .Table.Table}}() {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.update{{ToCamel .Table.Table}}();
+  }
+
+	@Test
+  public void testDelete{{ToCamel .Table.Table}}() {
+    {{ToLowerCamel .Table.Table}}SqlExecutor.delete{{ToCamel .Table.Table}}();
+  }
+}
+`
+
 func GetDefaultJavaConfig() JavaConfig {
 	var err error
 	config := JavaConfig{
@@ -281,6 +335,11 @@ func GetDefaultJavaConfig() JavaConfig {
 	}
 
 	config.RepositoryTemplate, err = template.New("repository").Funcs(JavaFuncMap).Parse(JavaRepositoryTemplate)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	config.RepositoryTestTemplate, err = template.New("repository").Funcs(JavaFuncMap).Parse(JavaRepositoryTestTemplate)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -322,6 +381,16 @@ func GenerateJava(config JavaConfig) ([]File, error) {
 	}
 
 	return files, nil
+}
+
+func GenerateJavaTest(config JavaConfig) ([]File, error) {
+	files := []File{}
+	entityName := strcase.ToCamel(config.Table.Table)
+	entityFile, err := generateFile(config.RepositoryTestTemplate, filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutorTest.java"), config)
+	if err != nil {
+		return nil, err
+	}
+	return append(files, entityFile), nil
 }
 
 func generateFile(tmpl *template.Template, path string, config any) (File, error) {
