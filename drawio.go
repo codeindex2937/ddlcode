@@ -243,7 +243,7 @@ func GetDefaultDrawioConfig() DrawioConfig {
 	return config
 }
 
-func GenerateDrawio(config DrawioConfig) (File, error) {
+func GenerateDrawio(config DrawioConfig) (map[string]string, error) {
 	var err error
 	tableIdMap := map[string]string{}
 	columnIdMap := map[string]map[string]string{}
@@ -308,15 +308,14 @@ func GenerateDrawio(config DrawioConfig) (File, error) {
 		mergePosition(config.ExportPath, f)
 	}
 
-	file := File{
-		Path: config.ExportPath,
-	}
-
-	file.Content, err = xml.MarshalIndent(f, "", "  ")
+	byteContent, err := xml.MarshalIndent(f, "", "  ")
 	if err != nil {
 		log.Fatal(err)
 	}
-	return file, nil
+
+	files := map[string]string{}
+	files[config.ExportPath] = string(byteContent)
+	return files, nil
 }
 
 func getPositions(tables []*Table, h func(int) int, w int) map[string]position {

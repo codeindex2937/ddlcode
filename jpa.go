@@ -175,7 +175,6 @@ import java.sql.ResultSet;
 import java.util.List;
 {{ GetImportPaths .Table }}
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -192,12 +191,15 @@ import {{.Package}}.jpa.{{ToCamel .Table.Table}}PK;
 public class {{ToCamel .Table.Table}}SqlExecutor {
   private static final String SQL_QUERY_{{ToConstant .Table.Table}} = "select {{GetAllColumn .Table}} from {{.Table.Table}} where {{GetPkCriteria .Table}}";
   private static final String SQL_DELETE_{{ToConstant .Table.Table}} = "delete from {{.Table.Table}} where {{GetPkCriteria .Table}}";
-  private static final String SQL_INSERT_{{ToConstant .Table.Table}} = "insert into {{.Table.Table}}({{GetAllColumn .Table}}) VALUES ({{GetAllPlaceholder .Table}})";
+  private static final String SQL_INSERT_{{ToConstant .Table.Table}} = "insert into {{.Table.Table}}({{GetAllColumn .Table}}) values ({{GetAllPlaceholder .Table}})";
   private static final String SQL_UPDATE_{{ToConstant .Table.Table}} = "update {{.Table.Table}} set {{GetNonPkAssignment .Table}} where {{GetPkCriteria .Table}}";
 
-  @Autowired
   @Qualifier("primary")
-  private NamedParameterJdbcTemplate datasource;
+  private final NamedParameterJdbcTemplate datasource;
+
+	public {{ToCamel .Table.Table}}SqlExecutor(NamedParameterJdbcTemplate datasource) {
+		this.datasource = datasource;
+	}
 
   public List<{{ToCamel .Table.Table}}Entity> list{{ToCamel .Table.Table}}() {
     MapSqlParameterSource params = new MapSqlParameterSource();
@@ -248,7 +250,7 @@ public class {{ToCamel .Table.Table}}SqlExecutor {
     {{- end}}
     return datasource.update(SQL_UPDATE_{{ToConstant .Table.Table}}, params);
   }
-  public int delete{{ToCamel .Table.Table}}({{GetAllTypeWithMember .Table}}) {
+  public int delete{{ToCamel .Table.Table}}({{GetPkTypeWithMember .Table}}) {
     MapSqlParameterSource params = new MapSqlParameterSource();
     {{- range .Table.Columns}}
     {{- if .Attribute.IsPrimaryKey}}
@@ -347,64 +349,66 @@ func GetDefaultJavaConfig() JavaConfig {
 	return config
 }
 
-func GenerateJava(config JavaConfig) ([]File, error) {
-	files := []File{}
+func GenerateJava(config JavaConfig) (map[string]string, error) {
+	files := map[string]string{}
 	entityName := strcase.ToCamel(config.Table.Table)
-	entityFile, err := generateFile(config.Template, filepath.Join(config.ExportDir, "jpa", entityName+"Entity.java"), config)
+	path := filepath.Join(config.ExportDir, "jpa", entityName+"Entity.java")
+	content, err := generateFile(config.Template, config)
 	if err != nil {
 		return nil, err
 	}
-	files = append(files, entityFile)
+	files[path] = content
 
 	if isCompositePrimaryKey(config.Table) {
-		pkFile, err := generateFile(config.PrimaryKeyTemplate, filepath.Join(config.ExportDir, "jpa", entityName+"PK.java"), config)
+		path := filepath.Join(config.ExportDir, "jpa", entityName+"PK.java")
+		content, err := generateFile(config.PrimaryKeyTemplate, config)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, pkFile)
+		files[path] = content
 	}
 
 	if config.DaoTemplate != nil {
-		entityFile, err := generateFile(config.DaoTemplate, filepath.Join(config.ExportDir, "dao", entityName+"Dao.java"), config)
+		path := filepath.Join(config.ExportDir, "dao", entityName+"Dao.java")
+		content, err := generateFile(config.DaoTemplate, config)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, entityFile)
+		files[path] = content
 	}
 
 	if config.RepositoryTemplate != nil {
-		entityFile, err := generateFile(config.RepositoryTemplate, filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutor.java"), config)
+		path := filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutor.java")
+		content, err := generateFile(config.RepositoryTemplate, config)
 		if err != nil {
 			return nil, err
 		}
-		files = append(files, entityFile)
+		files[path] = content
 	}
 
 	return files, nil
 }
 
-func GenerateJavaTest(config JavaConfig) ([]File, error) {
-	files := []File{}
+func GenerateJavaTest(config JavaConfig) (map[string]string, error) {
+	files := map[string]string{}
 	entityName := strcase.ToCamel(config.Table.Table)
-	entityFile, err := generateFile(config.RepositoryTestTemplate, filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutorTest.java"), config)
+	path := filepath.Join(config.ExportDir, "repository", entityName+"SqlExecutorTest.java")
+	content, err := generateFile(config.RepositoryTestTemplate, config)
 	if err != nil {
 		return nil, err
 	}
-	return append(files, entityFile), nil
+
+	files[path] = content
+	return files, nil
 }
 
-func generateFile(tmpl *template.Template, path string, config any) (File, error) {
-	f := File{
-		Path: path,
-	}
-
+func generateFile(tmpl *template.Template, config any) (string, error) {
 	buf := bytes.NewBuffer([]byte{})
 	if err := tmpl.Execute(buf, config); err != nil {
-		return f, err
+		return "", err
 	}
 
-	f.Content = buf.Bytes()
-	return f, nil
+	return buf.String(), nil
 }
 
 func compareJavaFields(table *Table, otherName string) string {

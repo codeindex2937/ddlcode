@@ -54,14 +54,15 @@ func GetDefaultGormConfig() GormConfig {
 	return config
 }
 
-func GenerateGorm(config GormConfig) ([]File, error) {
-	files := []File{}
+func GenerateGorm(config GormConfig) (map[string]string, error) {
+	files := map[string]string{}
 	entityName := strcase.ToLowerCamel(config.Table.Table)
-	entityFile, err := generateFile(config.Template, filepath.Join(config.ExportDir, entityName+".go"), config)
+	path := filepath.Join(config.ExportDir, entityName+".go")
+	content, err := generateFile(config.Template, config)
 	if err != nil {
 		return nil, err
 	}
-	files = append(files, entityFile)
+	files[path] = content
 
 	return files, nil
 }
