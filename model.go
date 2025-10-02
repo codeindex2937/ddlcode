@@ -24,6 +24,7 @@ type Column struct {
 	Attribute              AttributeMap     `json:"-"`
 	ForeignColumn          *Column          `json:"-"`
 	ForeignTable           *Table           `json:"-"`
+	Comment                string           `json:"comment"`
 }
 
 type Table struct {
@@ -34,6 +35,7 @@ type Table struct {
 	Table     string    `json:"table"`
 	Type      string    `json:"type"`
 	Columns   []*Column `json:"-"`
+	Comment   string    `json:"comment"`
 }
 
 type PkInfo struct {

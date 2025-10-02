@@ -85,6 +85,25 @@ func Parse(sql string) Database {
 		}
 	}
 
+	for _, commentStmt := range cast(stmts, castCommentStmt) {
+		table, ok := tableMap[commentStmt.TableName.Table.Value]
+		if !ok {
+			continue
+		}
+		if commentStmt.Type == ast.CommentOnTable {
+			table.Comment = commentStmt.Comment
+			continue
+		}
+		if commentStmt.Type == ast.CommentOnColumn {
+			for _, col := range table.Columns {
+				if col.Name == commentStmt.ColumnName.Value {
+					col.Comment = commentStmt.Comment
+				}
+			}
+			continue
+		}
+	}
+
 	for _, t := range tableMap {
 		db.Tables = append(db.Tables, t)
 		db.Columns = append(db.Columns, t.Columns...)
@@ -188,6 +207,7 @@ func cast[T any, U any](src []T, fn func(T) *U) []*U {
 func castCreateTableStmt(v ast.Node) *ast.CreateTableStmt { r, _ := v.(*ast.CreateTableStmt); return r }
 func castCreateIndexStmt(v ast.Node) *ast.CreateIndexStmt { r, _ := v.(*ast.CreateIndexStmt); return r }
 func castAlterTableStmt(v ast.Node) *ast.AlterTableStmt   { r, _ := v.(*ast.AlterTableStmt); return r }
+func castCommentStmt(v ast.Node) *ast.CommentStmt         { r, _ := v.(*ast.CommentStmt); return r }
 func castAddConstraintStmt(v ast.AlterTableClause) *ast.AddConstraintClause {
 	r, _ := v.(*ast.AddConstraintClause)
 	return r
