@@ -66,8 +66,9 @@ func Parse(sql string) Database {
 		for _, spec := range cast(createStmt.RelTable.TableStructs, castRefConstraint) {
 			switch spec.InlineConstraint.Type {
 			case ast.ConstraintTypeReferences:
-				refTable := tableMap[spec.Reference.Table.Table.Value]
-				db.FkInfo = append(db.FkInfo, assignRefColumns(table, refTable, spec)...)
+				if refTable, ok := tableMap[spec.Reference.Table.Table.Value]; ok {
+					db.FkInfo = append(db.FkInfo, assignRefColumns(table, refTable, spec)...)
+				}
 			}
 		}
 	}
@@ -78,8 +79,9 @@ func Parse(sql string) Database {
 			for _, spec := range clause.Constraints {
 				switch spec.InlineConstraint.Type {
 				case ast.ConstraintTypeReferences:
-					refTable := tableMap[spec.Reference.Table.Table.Value]
-					db.FkInfo = append(db.FkInfo, assignRefColumns(table, refTable, spec)...)
+					if refTable, ok := tableMap[spec.Reference.Table.Table.Value]; ok {
+						db.FkInfo = append(db.FkInfo, assignRefColumns(table, refTable, spec)...)
+					}
 				}
 			}
 		}
